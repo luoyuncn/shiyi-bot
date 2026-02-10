@@ -52,6 +52,24 @@ class SileroVADEngine(BaseEngine):
             logger.error(f"加载VAD模型失败: {e}")
             raise
 
+    # Silero VAD 要求固定输入长度：16kHz→512, 8kHz→256
+    VAD_FRAME_SIZE = 512
+
+    def _vad_prob(self, chunk: np.ndarray) -> float:
+        """将任意长度 chunk 切成 VAD_FRAME_SIZE 小块求最大概率"""
+        max_prob = 0.0
+        audio_float = chunk.astype(np.float32) / 32768.0
+        for start in range(0, len(audio_float), self.VAD_FRAME_SIZE):
+            frame = audio_float[start:start + self.VAD_FRAME_SIZE]
+            if len(frame) < self.VAD_FRAME_SIZE:
+                frame = np.pad(frame, (0, self.VAD_FRAME_SIZE - len(frame)))
+            tensor = torch.from_numpy(frame)
+            with torch.no_grad():
+                prob = self.model(tensor, self.sample_rate).item()
+            if prob > max_prob:
+                max_prob = prob
+        return max_prob
+
     async def record_until_silence(self) -> bytes:
         """
         录音直到检测到静音
@@ -75,28 +93,38 @@ class SileroVADEngine(BaseEngine):
 
         logger.info("🎤 开始录音...")
 
+        # 最多等待 3 秒让用户开口；开口前不计静音
+        max_wait_chunks = int(3.0 * self.sample_rate / self.recorder.chunk_size)
+        speech_started = False
+
         try:
-            for i in range(max_chunks):
+            for i in range(max_chunks + max_wait_chunks):
                 # 读取音频块
                 chunk = self.recorder.read_chunk()
-                buffer.write(chunk.tobytes())
                 total_chunks += 1
 
-                # VAD检测
-                audio_float = chunk.astype(np.float32) / 32768.0
-                audio_tensor = torch.from_numpy(audio_float)
+                # VAD检测（自动分帧）
+                speech_prob = self._vad_prob(chunk)
 
-                with torch.no_grad():
-                    speech_prob = self.model(audio_tensor, self.sample_rate).item()
-
-                # 判断是否为静音
-                if speech_prob < 0.5:
-                    silence_chunks += 1
-                    if silence_chunks >= silence_threshold:
-                        logger.info(f"🔇 检测到{self.silence_duration_ms}ms静音，停止录音")
-                        break
+                if not speech_started:
+                    if speech_prob >= 0.5:
+                        speech_started = True
+                        buffer.write(chunk.tobytes())
+                        logger.debug("🗣️ 检测到说话声，开始录音缓冲")
+                    # 未开口前丢弃音频，避免唤醒词残留
+                    elif i >= max_wait_chunks:
+                        logger.info("⏱️ 等待说话超时，取消本次录音")
+                        return b""
                 else:
-                    silence_chunks = 0
+                    buffer.write(chunk.tobytes())
+                    # 判断是否为静音
+                    if speech_prob < 0.5:
+                        silence_chunks += 1
+                        if silence_chunks >= silence_threshold:
+                            logger.info(f"🔇 检测到{self.silence_duration_ms}ms静音，停止录音")
+                            break
+                    else:
+                        silence_chunks = 0
 
                 # 让出控制权
                 if i % 10 == 0:
@@ -131,12 +159,8 @@ class SileroVADEngine(BaseEngine):
                 # 读取音频块
                 chunk = self.recorder.read_chunk()
 
-                # VAD检测
-                audio_float = chunk.astype(np.float32) / 32768.0
-                audio_tensor = torch.from_numpy(audio_float)
-
-                with torch.no_grad():
-                    speech_prob = self.model(audio_tensor, self.sample_rate).item()
+                # VAD检测（自动分帧）
+                speech_prob = self._vad_prob(chunk)
 
                 if speech_prob >= 0.5:
                     logger.info("🔊 连续对话窗口检测到人声")

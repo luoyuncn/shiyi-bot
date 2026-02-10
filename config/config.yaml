@@ -49,6 +49,7 @@ tts:
   pitch: "+0Hz"
 
 audio:
-  input_device_index: null  # null表示默认麦克风
-  output_device_index: null  # null表示默认扬声器
+  input_device_index: 2  # UGREEN Camera 1080P 内置麦克风 (hw:3,0)
+  output_device_index: 0  # bcm2835 Headphones 3.5mm耳机口
   chunk_size: 1024
+  input_channels: 2  # UGREEN Camera 是双声道，read_chunk 会自动下混为单声道

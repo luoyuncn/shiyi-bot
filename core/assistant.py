@@ -1,5 +1,7 @@
 """助理核心控制器 - 整合所有模块的主控制逻辑"""
 import asyncio
+import sys
+import numpy as np
 from loguru import logger
 from core.state_machine import AssistantState
 from core.sentence_splitter import SentenceSplitter
@@ -30,6 +32,7 @@ class AssistantCore:
         self.recorder = AudioRecorder(
             sample_rate=config.system.audio_sample_rate,
             chunk_size=config.audio.chunk_size,
+            channels=config.audio.input_channels,
             device_index=config.audio.input_device_index
         )
         self.player = AudioPlayer(
@@ -75,6 +78,9 @@ class AssistantCore:
         self.running = False
         self.continuous_window_seconds = config.vad.continuous_window_seconds
 
+        # 音量显示
+        self._level_frame = 0
+
     async def initialize(self):
         """初始化所有组件"""
         logger.info("=" * 60)
@@ -108,16 +114,33 @@ class AssistantCore:
         await self.initialize()
 
         self.running = True
+        self._tasks = [
+            asyncio.create_task(self._main_loop(), name="assistant_main_loop"),
+            asyncio.create_task(self._tts_playback_loop(), name="assistant_tts_loop"),
+        ]
 
         try:
-            # 启动两个并发任务
-            await asyncio.gather(
-                self._main_loop(),       # 主控制循环
-                self._tts_playback_loop()  # TTS播放循环
-            )
+            await asyncio.gather(*self._tasks)
 
         except asyncio.CancelledError:
             logger.info("助理任务被取消")
+            raise
+        finally:
+            # 确保任务退出
+            self.running = False
+            for task in self._tasks:
+                task.cancel()
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    async def stop(self):
+        """停止助理主循环"""
+        if not self.running:
+            return
+        self.running = False
+        if hasattr(self, "_tasks"):
+            for task in self._tasks:
+                task.cancel()
+            await asyncio.gather(*self._tasks, return_exceptions=True)
 
     async def _main_loop(self):
         """主控制循环 - 处理唤醒、录音、识别、推理"""
@@ -137,6 +160,8 @@ class AssistantCore:
 
                 await asyncio.sleep(0.01)
 
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"主循环出错: {e}", exc_info=True)
                 self.state = AssistantState.IDLE
@@ -145,7 +170,20 @@ class AssistantCore:
     async def _wait_for_wake_word(self):
         """等待唤醒词"""
         chunk = self.recorder.read_chunk()
+
+        # 每 16 帧（约 1 秒）打印一次音量表
+        self._level_frame += 1
+        if self._level_frame >= 16:
+            self._level_frame = 0
+            rms = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
+            # 映射到 0-20 格的 bar，满格约 3000 RMS
+            bars = min(20, int(rms / 150))
+            bar = "█" * bars + "░" * (20 - bars)
+            sys.stdout.write(f"\r🎤 [{bar}] {rms:6.0f}  ")
+            sys.stdout.flush()
+
         if await self.wake_engine.detect(chunk):
+            sys.stdout.write("\n")
             logger.info(f"🌟 唤醒成功！切换到监听模式")
             self.state = AssistantState.LISTENING
 
@@ -153,6 +191,11 @@ class AssistantCore:
         """监听用户说话并处理"""
         # VAD录音
         audio_data = await self.vad_engine.record_until_silence()
+
+        if not audio_data:
+            # 等待说话超时，直接回到待机
+            self.state = AssistantState.IDLE
+            return
 
         # 切换到处理态
         self.state = AssistantState.PROCESSING
@@ -227,6 +270,8 @@ class AssistantCore:
 
                 self.sentence_queue.task_done()
 
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"TTS播放失败: {e}", exc_info=True)
                 self.sentence_queue.task_done()

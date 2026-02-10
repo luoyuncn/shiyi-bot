@@ -1,6 +1,5 @@
 """配置加载器"""
-from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings
+from pydantic import BaseModel
 import yaml
 import os
 import re
@@ -64,6 +63,7 @@ class AudioConfig(BaseModel):
     input_device_index: Optional[int] = None
     output_device_index: Optional[int] = None
     chunk_size: int = 1024
+    input_channels: int = 1
 
 
 class Settings(BaseModel):
@@ -77,6 +77,35 @@ class Settings(BaseModel):
     audio: AudioConfig
 
 
+def _load_dotenv(env_path: Path) -> None:
+    """Load simple KEY=VALUE pairs from a .env file into os.environ."""
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or key in os.environ:
+            continue
+
+        # Strip optional quotes
+        if (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
+            value = value[1:-1]
+
+        os.environ[key] = value
+
+
 def load_config(config_path: str = "config/config.yaml") -> Settings:
     """
     加载配置文件并替换环境变量
@@ -87,6 +116,9 @@ def load_config(config_path: str = "config/config.yaml") -> Settings:
     Returns:
         Settings对象
     """
+    # 先加载.env到环境变量（若存在）
+    _load_dotenv(Path(".env"))
+
     # 读取配置文件
     with open(config_path, 'r', encoding='utf-8') as f:
         config_text = f.read()

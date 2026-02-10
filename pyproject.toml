@@ -7,14 +7,14 @@ requires-python = ">=3.10"
 dependencies = [
     # 音频处理
     "pyaudio>=0.2.14",
-    "numpy>=1.24.0",
+    "numpy<2",
 
     # 唤醒词检测
     "openwakeword>=0.5.0",
 
     # VAD语音活动检测
-    "torch>=2.0.0",
-    "torchaudio>=2.0.0",
+    "torch==2.1.2",
+    "torchaudio==2.1.2",
 
     # 腾讯云SDK
     "tencentcloud-sdk-python>=3.0.0",
@@ -51,3 +51,6 @@ build-backend = "hatchling.build"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.hatch.build.targets.wheel]
+packages = ["audio", "config", "core", "engines", "utils"]

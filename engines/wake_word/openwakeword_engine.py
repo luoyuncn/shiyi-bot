@@ -1,9 +1,12 @@
 """OpenWakeWord唤醒词引擎"""
 import numpy as np
+import openwakeword
 from openwakeword import Model
+from openwakeword.utils import download_models
 from engines.base import BaseEngine
 from loguru import logger
 from typing import Optional
+from pathlib import Path
 
 
 class OpenWakeWordEngine(BaseEngine):
@@ -26,12 +29,22 @@ class OpenWakeWordEngine(BaseEngine):
         try:
             # 如果没有自定义模型，使用预训练模型
             if self.model_path:
+                if not Path(self.model_path).exists():
+                    raise FileNotFoundError(f"唤醒词模型文件不存在: {self.model_path}")
                 self.model = Model(wakeword_models=[self.model_path])
                 logger.info(f"唤醒词模型已加载: {self.model_path}")
             else:
-                # 使用默认的hey_mycroft模型
-                self.model = Model()
-                logger.info("唤醒词模型已加载: 默认预训练模型")
+                # 确保预训练模型资源已就绪（某些安装包不包含resources目录）
+                resources_dir = Path(openwakeword.__file__).resolve().parent / "resources" / "models"
+                default_model_path = Path(openwakeword.MODELS["alexa"]["model_path"])
+                if not default_model_path.exists():
+                    logger.info("检测到 openwakeword 预训练模型缺失，正在下载...")
+                    # 仅下载 hey_jarvis 模型，避免全量模型下载失败
+                    download_models(model_names=["hey_jarvis"], target_directory=str(resources_dir))
+
+                # 使用默认的预训练模型（只加载 hey_jarvis，避免全量模型缺失）
+                self.model = Model(wakeword_models=["hey_jarvis"])
+                logger.info("唤醒词模型已加载: 默认预训练模型(hey_jarvis)")
 
             logger.debug(f"可用的唤醒词: {list(self.model.models.keys())}")
 
