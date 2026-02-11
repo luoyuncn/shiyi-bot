@@ -71,12 +71,12 @@ class BaseAgent(ABC):
         from tools.registry import ToolRegistry
 
         llm = OpenAICompatibleEngine(
-            api_base=self.config.llm["api_base"],
-            api_key=self.config.llm["api_key"],
-            model=self.config.llm["model"],
+            api_base=self.config.llm.api_base,
+            api_key=self.config.llm.api_key,
+            model=self.config.llm.model,
             system_prompt=self.system_prompt,
             temperature=self.temperature,
-            max_tokens=self.config.llm.get("max_tokens", 2000)
+            max_tokens=self.config.llm.max_tokens
         )
         await llm.initialize()
 

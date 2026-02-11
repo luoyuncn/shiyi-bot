@@ -82,12 +82,14 @@ class MemoryConfig(BaseModel):
 class Settings(BaseModel):
     """完整配置"""
     system: SystemConfig
+    channels: dict = {}
     wake_word: WakeWordConfig
     vad: VADConfig
     stt: STTConfig
     llm: LLMConfig
     tts: TTSConfig
     audio: AudioConfig
+    agent: dict = {}
     tools: ToolsConfig
     memory: MemoryConfig
 

@@ -123,14 +123,21 @@ async def main():
             if not stop_event.is_set():
                 stop_event.set()
 
+        # Linux/macOS: use loop signal handler; Windows: fallback to signal.signal
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
                 loop.add_signal_handler(sig, _request_stop)
-            except NotImplementedError:
-                pass
+            except (NotImplementedError, OSError):
+                try:
+                    signal.signal(sig, lambda *_: _request_stop())
+                except (OSError, ValueError):
+                    pass
 
         # 启动
         run_task = asyncio.create_task(orchestrator.start())
+
+        # 当 run_task 结束（正常或异常）时自动触发退出
+        run_task.add_done_callback(lambda _: _request_stop())
 
         # 等待退出信号
         await stop_event.wait()

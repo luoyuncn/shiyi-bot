@@ -1,6 +1,7 @@
 """Agent core - LLM reasoning and tool calling"""
 import asyncio
 import json
+from datetime import datetime
 from typing import AsyncIterator, Optional, Any
 from loguru import logger
 
@@ -16,12 +17,12 @@ class AgentCore:
 
         # LLM engine
         self.llm_engine = OpenAICompatibleEngine(
-            api_base=config.llm["api_base"],
-            api_key=config.llm["api_key"],
-            model=config.llm["model"],
-            system_prompt=config.llm["system_prompt"],
-            temperature=config.llm.get("temperature", 0.7),
-            max_tokens=config.llm.get("max_tokens", 2000)
+            api_base=config.llm.api_base,
+            api_key=config.llm.api_key,
+            model=config.llm.model,
+            system_prompt=config.llm.system_prompt,
+            temperature=config.llm.temperature,
+            max_tokens=config.llm.max_tokens
         )
         self.max_tool_iterations = 5  # 防止无限循环
 
@@ -58,9 +59,14 @@ class AgentCore:
                     tools = tool_defs
                     logger.debug(f"已加载 {len(tools)} 个工具定义")
 
-            # Add system prompt
+            # Build system prompt with dynamic model name and current time
+            now = datetime.now().strftime("%Y年%m月%d日 %H:%M")
+            system_content = self.config.llm.system_prompt.format(
+                model=self.config.llm.model,
+                datetime=now
+            )
             full_messages = [
-                {"role": "system", "content": self.config.llm["system_prompt"]},
+                {"role": "system", "content": system_content},
                 *messages
             ]
 
@@ -160,6 +166,17 @@ class AgentCore:
 
                     # Continue loop to get LLM's response with tool results
 
+            else:
+                # Exhausted max iterations without a text response — force a final answer
+                logger.warning(f"工具调用达到最大次数 ({self.max_tool_iterations})，强制获取最终回复")
+                full_messages.append({
+                    "role": "user",
+                    "content": "请根据以上工具查询结果，直接给出最终回答，不要再调用任何工具。"
+                })
+                final = await self.llm_engine.chat_with_tools(full_messages, tools=None)
+                if final["type"] == "text":
+                    yield {"type": "text", "content": final["content"]}
+
             yield {"type": "done"}
 
         except Exception as e:
@@ -181,7 +198,7 @@ class AgentCore:
         if not tool:
             raise ValueError(f"工具不存在: {tool_name}")
 
-        logger.info(f"执行工具: {tool_name} with {parameters}")
+        logger.debug(f"执行工具: {tool_name} with {parameters}")
         result = await tool.execute(**parameters)
         return result
 

@@ -50,7 +50,7 @@ class Tool(BaseTool):
             from ddgs import DDGS
 
             max_results_int = int(max_results)
-            logger.info(f"搜索: {query}, 最大结果: {max_results_int}")
+            logger.debug(f"搜索: {query}, 最大结果: {max_results_int}")
 
             loop = asyncio.get_event_loop()
             results = await asyncio.wait_for(
@@ -64,7 +64,7 @@ class Tool(BaseTool):
             if not results:
                 return f"未找到关于'{query}'的搜索结果"
 
-            logger.info(f"搜索完成，获得 {len(results)} 条结果")
+            logger.debug(f"搜索完成，获得 {len(results)} 条结果")
 
             formatted = [f"搜索结果：{query}\n"]
             for i, r in enumerate(results, 1):

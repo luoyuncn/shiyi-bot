@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(python3:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nrefactor: 项目重命名为 shiyi，更新定位与文档\n\n- 全局将 ShiYiBot 重命名为 Shiyi（pyproject.toml、config、各通道、日志）\n- pyproject.toml 版本升至 2.0.0，新增 [project.scripts] shiyi 命令入口\n- main.py 新增 run\\(\\) 函数作为 `shiyi` CLI 入口点\n- README 重写：移除树莓派描述，定位为可部署于任意主机的私人助手\n- README 新增部署章节（systemd / Docker）、扩展章节和启动方式\n- CLAUDE.md 同步更新架构描述至 V2.0 多通道体系\nEOF\n\\)\")"
+    ]
+  }
+}

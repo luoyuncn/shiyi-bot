@@ -97,7 +97,7 @@ class OpenAICompatibleEngine(BaseEngine):
             # 添加助手回复到历史
             self.conversation_history.append({"role": "assistant", "content": full_response})
 
-            logger.info(f"🤖 LLM回复: {full_response}")
+            logger.debug(f"🤖 LLM回复: {full_response}")
 
         except Exception as e:
             logger.error(f"LLM生成失败: {e}")
@@ -147,7 +147,7 @@ class OpenAICompatibleEngine(BaseEngine):
 
             # 检查是否有工具调用
             if hasattr(message, 'tool_calls') and message.tool_calls:
-                logger.info(f"🔧 LLM请求调用工具: {[tc.function.name for tc in message.tool_calls]}")
+                logger.debug(f"🔧 LLM请求调用工具: {[tc.function.name for tc in message.tool_calls]}")
                 return {
                     "type": "tool_calls",
                     "tool_calls": [
@@ -162,7 +162,7 @@ class OpenAICompatibleEngine(BaseEngine):
             else:
                 # 普通文本响应
                 content = message.content or ""
-                logger.info(f"🤖 LLM回复: {content}")
+                logger.debug(f"🤖 LLM回复: {content}")
                 return {
                     "type": "text",
                     "content": content
