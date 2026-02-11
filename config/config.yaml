@@ -6,7 +6,7 @@ system:
 # 通道配置
 channels:
   voice:
-    enabled: false  # 语音通道（需要硬件支持）
+    enabled: true   # 语音通道
 
   cli:
     enabled: true   # CLI 文字通道
@@ -20,8 +20,9 @@ channels:
 
 wake_word:
   engine: "openwakeword"
-  model_path: null  # null表示使用默认模型，自定义模型路径: "models/shiyi.onnx"
+  model_path: null
   threshold: 0.5
+  skip_wake_word: true  # 跳过唤醒词，直接监听（openwakeword暂不支持此平台）
 
 vad:
   engine: "silero"
@@ -71,8 +72,9 @@ tts:
   pitch: "+0Hz"
 
 audio:
-  input_device_index: 2  # UGREEN Camera 1080P 内置麦克风 (hw:3,0)
-  output_device_index: 0  # bcm2835 Headphones 3.5mm耳机口
+  input_device_index: 7  # PulseAudio 设备（自动路由到 UGREEN Camera 1080P）
+  output_device_index: null
+  pulse_sink: "bluez_sink.90_FB_5D_CA_9D_9D.a2dp_sink"  # 蓝牙输出设备
   chunk_size: 1024
   input_channels: 2  # UGREEN Camera 是双声道，read_chunk 会自动下混为单声道
 

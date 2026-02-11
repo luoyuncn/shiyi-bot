@@ -7,7 +7,6 @@ from core.state_machine import AssistantState
 from core.sentence_splitter import SentenceSplitter
 from audio.recorder import AudioRecorder
 from audio.player import AudioPlayer
-from engines.wake_word import OpenWakeWordEngine
 from engines.vad import SileroVADEngine
 from engines.stt import TencentSTTEngine
 from engines.llm import OpenAICompatibleEngine
@@ -37,14 +36,23 @@ class AssistantCore:
         )
         self.player = AudioPlayer(
             sample_rate=24000,  # Edge-TTS输出24kHz
-            device_index=config.audio.output_device_index
+            device_index=config.audio.output_device_index,
+            pulse_sink=config.audio.pulse_sink,
         )
 
-        # 引擎实例
-        self.wake_engine = OpenWakeWordEngine(
-            model_path=config.wake_word.model_path,
-            threshold=config.wake_word.threshold
-        )
+        # 唤醒词引擎（可选）
+        self._skip_wake_word = getattr(config.wake_word, "skip_wake_word", False)
+        self.wake_engine = None
+        if not self._skip_wake_word:
+            try:
+                from engines.wake_word import OpenWakeWordEngine
+                self.wake_engine = OpenWakeWordEngine(
+                    model_path=config.wake_word.model_path,
+                    threshold=config.wake_word.threshold
+                )
+            except ImportError:
+                logger.warning("openwakeword 未安装，自动启用 skip_wake_word 模式")
+                self._skip_wake_word = True
         self.vad_engine = SileroVADEngine(
             recorder=self.recorder,
             silence_duration_ms=config.vad.silence_duration_ms,
@@ -94,7 +102,10 @@ class AssistantCore:
 
             # 初始化所有引擎
             logger.info("正在加载AI引擎...")
-            await self.wake_engine.initialize()
+            if self.wake_engine:
+                await self.wake_engine.initialize()
+            else:
+                logger.info("唤醒词已跳过，直接进入监听模式")
             await self.vad_engine.initialize()
             await self.stt_engine.initialize()
             await self.llm_engine.initialize()
@@ -147,8 +158,11 @@ class AssistantCore:
         while self.running:
             try:
                 if self.state == AssistantState.IDLE:
-                    # 待机态：等待唤醒词
-                    await self._wait_for_wake_word()
+                    # 待机态：等待唤醒词（或直接进入监听）
+                    if self._skip_wake_word:
+                        self.state = AssistantState.LISTENING
+                    else:
+                        await self._wait_for_wake_word()
 
                 elif self.state == AssistantState.LISTENING:
                     # 监听态：VAD录音
@@ -169,7 +183,7 @@ class AssistantCore:
 
     async def _wait_for_wake_word(self):
         """等待唤醒词"""
-        chunk = self.recorder.read_chunk()
+        chunk = await asyncio.to_thread(self.recorder.read_chunk)
 
         # 每 16 帧（约 1 秒）打印一次音量表
         self._level_frame += 1
@@ -298,7 +312,8 @@ class AssistantCore:
         self.running = False
 
         # 清理引擎
-        await self.wake_engine.cleanup()
+        if self.wake_engine:
+            await self.wake_engine.cleanup()
         await self.vad_engine.cleanup()
         await self.stt_engine.cleanup()
         await self.llm_engine.cleanup()

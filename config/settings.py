@@ -19,6 +19,7 @@ class WakeWordConfig(BaseModel):
     engine: str = "openwakeword"
     model_path: Optional[str] = None
     threshold: float = 0.5
+    skip_wake_word: bool = False  # 跳过唤醒词，直接进入监听（调试用）
 
 
 class VADConfig(BaseModel):
@@ -62,6 +63,7 @@ class AudioConfig(BaseModel):
     """音频设备配置"""
     input_device_index: Optional[int] = None
     output_device_index: Optional[int] = None
+    pulse_sink: Optional[str] = None  # PulseAudio 输出设备名，None 表示默认
     chunk_size: int = 1024
     input_channels: int = 1
 

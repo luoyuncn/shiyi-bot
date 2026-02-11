@@ -65,11 +65,20 @@ def _pipewire_pulse_running() -> bool:
         return False
 
 
+def _pulseaudio_running() -> bool:
+    """检查 PulseAudio 是否正在运行"""
+    import subprocess as _sp
+    try:
+        return _sp.run(["pgrep", "-x", "pulseaudio"], capture_output=True).returncode == 0
+    except Exception:
+        return False
+
+
 def _ensure_alsa_config():
     if "ALSA_CONFIG_PATH" in os.environ:
         return
-    # PipeWire-Pulse 运行时独占硬件，不能用 hw: 直接访问，跳过覆盖
-    if _pipewire_pulse_running():
+    # PulseAudio/PipeWire-Pulse 运行时独占硬件，不能用 hw: 直接访问，跳过覆盖
+    if _pipewire_pulse_running() or _pulseaudio_running():
         return
     card_name = _detect_alsa_capture_card()
     if not card_name:
@@ -144,6 +153,16 @@ async def main(args: argparse.Namespace):
             # 先初始化核心组件
             await orchestrator.initialize_core()
 
+            # 启动非 CLI 通道（如语音通道）作为后台任务
+            bg_task = None
+            if orchestrator.channels:
+                bg_task = asyncio.create_task(
+                    asyncio.gather(
+                        *[ch.start() for ch in orchestrator.channels],
+                        return_exceptions=True,
+                    )
+                )
+
             from channels.tui.app import ShiYiApp
 
             app = ShiYiApp(
@@ -156,6 +175,9 @@ async def main(args: argparse.Namespace):
             try:
                 await app.run_async()
             finally:
+                if bg_task:
+                    bg_task.cancel()
+                    await asyncio.gather(bg_task, return_exceptions=True)
                 await orchestrator.stop()
         else:
             # 原始模式：Orchestrator 管理所有 channel

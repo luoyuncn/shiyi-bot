@@ -99,8 +99,8 @@ class SileroVADEngine(BaseEngine):
 
         try:
             for i in range(max_chunks + max_wait_chunks):
-                # 读取音频块
-                chunk = self.recorder.read_chunk()
+                # 在线程中读取，避免阻塞事件循环，响应取消信号
+                chunk = await asyncio.to_thread(self.recorder.read_chunk)
                 total_chunks += 1
 
                 # VAD检测（自动分帧）
@@ -125,10 +125,6 @@ class SileroVADEngine(BaseEngine):
                             break
                     else:
                         silence_chunks = 0
-
-                # 让出控制权
-                if i % 10 == 0:
-                    await asyncio.sleep(0)
 
             audio_bytes = buffer.getvalue()
             duration = len(audio_bytes) / (self.sample_rate * 2)  # int16 = 2 bytes
@@ -156,17 +152,12 @@ class SileroVADEngine(BaseEngine):
 
         try:
             while (asyncio.get_event_loop().time() - start_time) < timeout:
-                # 读取音频块
-                chunk = self.recorder.read_chunk()
-
-                # VAD检测（自动分帧）
+                chunk = await asyncio.to_thread(self.recorder.read_chunk)
                 speech_prob = self._vad_prob(chunk)
 
                 if speech_prob >= 0.5:
                     logger.info("🔊 连续对话窗口检测到人声")
                     return True
-
-                await asyncio.sleep(0)
 
             logger.info("⏱️ 连续对话窗口超时，未检测到人声")
             return False
