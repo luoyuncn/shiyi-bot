@@ -7,9 +7,10 @@ from channels.base import BaseChannel
 class TextCLIChannel(BaseChannel):
     """Command line interface channel"""
 
-    def __init__(self, config, session_manager):
+    def __init__(self, config, session_manager, agent_core):
         self.config = config
         self.session_manager = session_manager
+        self.agent_core = agent_core
         self.running = False
         self.current_session = None
 
@@ -43,14 +44,40 @@ class TextCLIChannel(BaseChannel):
                     await self._handle_command(user_input)
                     continue
 
-                # Echo for now (will integrate AgentCore later)
-                print(f"🤖 助手: [收到消息] {user_input}")
-
-                # Save to session
+                # Save user message
                 await self.session_manager.save_message(
                     self.current_session.session_id,
                     "user",
                     user_input
+                )
+
+                # Process with AgentCore
+                print("🤖 助手: ", end="", flush=True)
+
+                # Get conversation context
+                context = await self.session_manager.get_session(self.current_session.session_id)
+                messages = context.messages + [{"role": "user", "content": user_input}]
+
+                # Stream response
+                response_text = ""
+                async for event in self.agent_core.process_message_stream(messages):
+                    if event["type"] == "text":
+                        print(event["content"], end="", flush=True)
+                        response_text += event["content"]
+                    elif event["type"] == "tool_call":
+                        print(f"\n[调用工具: {event['tool']}]", flush=True)
+                    elif event["type"] == "tool_result":
+                        print("[工具返回]", flush=True)
+                    elif event["type"] == "error":
+                        print(f"\n❌ 错误: {event['error']}", flush=True)
+
+                print()  # 换行
+
+                # Save assistant message
+                await self.session_manager.save_message(
+                    self.current_session.session_id,
+                    "assistant",
+                    response_text
                 )
 
             except KeyboardInterrupt:

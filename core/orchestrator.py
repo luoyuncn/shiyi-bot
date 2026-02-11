@@ -4,6 +4,7 @@ from loguru import logger
 from config.settings import Settings
 
 from core.session_manager import SessionManager
+from core.agent_core import AgentCore
 from channels.text_cli_channel import TextCLIChannel
 from tools.registry import ToolRegistry
 
@@ -17,13 +18,14 @@ class Orchestrator:
 
         # Initialize core components
         self.session_manager = SessionManager(config.memory)
+        self.agent_core = AgentCore(config)
 
         # Initialize channels
         self.channels = []
 
         # For now, only CLI channel
         self.channels.append(
-            TextCLIChannel(config, self.session_manager)
+            TextCLIChannel(config, self.session_manager, self.agent_core)
         )
 
     async def start(self):
@@ -64,6 +66,7 @@ class Orchestrator:
             except Exception as e:
                 logger.error(f"停止通道失败: {e}")
 
+        await self.agent_core.cleanup()
         await self.session_manager.cleanup()
 
     async def _initialize_core(self):
@@ -73,6 +76,9 @@ class Orchestrator:
         # Initialize tool registry
         await ToolRegistry.initialize(self.config.tools)
         logger.info(f"已注册 {len(ToolRegistry.list_tools())} 个工具")
+
+        # Initialize agent core
+        await self.agent_core.initialize()
 
         # Initialize session manager
         await self.session_manager.initialize()
