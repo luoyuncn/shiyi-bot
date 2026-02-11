@@ -66,6 +66,19 @@ class AudioConfig(BaseModel):
     input_channels: int = 1
 
 
+class ToolsConfig(BaseModel):
+    """Tools configuration"""
+    builtin: list[str] = []
+    mcp: dict = {"enabled": False, "servers": []}
+
+
+class MemoryConfig(BaseModel):
+    """Memory configuration"""
+    sqlite_path: str = "data/sessions.db"
+    cache_size: int = 100
+    auto_flush_interval: int = 60
+
+
 class Settings(BaseModel):
     """完整配置"""
     system: SystemConfig
@@ -75,6 +88,8 @@ class Settings(BaseModel):
     llm: LLMConfig
     tts: TTSConfig
     audio: AudioConfig
+    tools: ToolsConfig
+    memory: MemoryConfig
 
 
 def _load_dotenv(env_path: Path) -> None:
