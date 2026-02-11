@@ -106,6 +106,72 @@ class OpenAICompatibleEngine(BaseEngine):
             self.conversation_history.append({"role": "assistant", "content": error_msg})
             yield error_msg
 
+    async def chat_with_tools(
+        self,
+        messages: List[Dict[str, str]],
+        tools: List[Dict] = None
+    ) -> Dict:
+        """
+        支持工具调用的对话（非流式）
+
+        Args:
+            messages: 消息列表
+            tools: 工具定义列表（OpenAI格式）
+
+        Returns:
+            响应字典，包含 content 或 tool_calls
+        """
+        if not self.client:
+            raise RuntimeError("LLM引擎未初始化")
+
+        try:
+            logger.debug(f"发起LLM请求（支持工具）: {len(messages)} 条消息")
+
+            # 构建请求参数
+            request_params = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+            }
+
+            # 如果提供了工具定义，添加到请求中
+            if tools:
+                request_params["tools"] = tools
+                request_params["tool_choice"] = "auto"
+
+            response = await self.client.chat.completions.create(**request_params)
+
+            choice = response.choices[0]
+            message = choice.message
+
+            # 检查是否有工具调用
+            if hasattr(message, 'tool_calls') and message.tool_calls:
+                logger.info(f"🔧 LLM请求调用工具: {[tc.function.name for tc in message.tool_calls]}")
+                return {
+                    "type": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                        for tc in message.tool_calls
+                    ]
+                }
+            else:
+                # 普通文本响应
+                content = message.content or ""
+                logger.info(f"🤖 LLM回复: {content}")
+                return {
+                    "type": "text",
+                    "content": content
+                }
+
+        except Exception as e:
+            logger.error(f"LLM生成失败: {e}")
+            raise
+
     def clear_history(self):
         """清空对话历史"""
         self.conversation_history = []

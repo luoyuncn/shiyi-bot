@@ -21,6 +21,17 @@ class ToolRegistry:
         for tool_name in builtin_tools:
             await cls._load_builtin_tool(tool_name)
 
+        # Load MCP tools if enabled
+        mcp_config = tools_config.get("mcp", {}) if isinstance(tools_config, dict) else {}
+        if isinstance(mcp_config, dict) and mcp_config.get("enabled", False):
+            servers = mcp_config.get("servers", [])
+            if servers:
+                from tools.mcp_client import MCPClient
+                count = await MCPClient.initialize(servers, cls)
+                logger.info(f"MCP 工具加载完成，共 {count} 个工具")
+            else:
+                logger.debug("MCP已启用但未配置服务器")
+
         cls._initialized = True
         logger.info(f"工具注册器初始化完成，已注册 {len(cls._tools)} 个工具")
 
