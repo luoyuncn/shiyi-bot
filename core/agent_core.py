@@ -1,7 +1,7 @@
 """Agent core - LLM reasoning and tool calling"""
 import asyncio
 import json
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, Any
 from loguru import logger
 
 from engines.llm.openai_compatible_engine import OpenAICompatibleEngine
@@ -166,7 +166,7 @@ class AgentCore:
             logger.error(f"AgentCore处理失败: {e}")
             yield {"type": "error", "error": str(e)}
 
-    async def _execute_tool(self, tool_name: str, parameters: dict) -> any:
+    async def _execute_tool(self, tool_name: str, parameters: dict) -> Any:
         """
         Execute a tool by name
 
@@ -188,3 +188,24 @@ class AgentCore:
     async def cleanup(self):
         """Cleanup resources"""
         await self.llm_engine.cleanup()
+
+    async def process_with_sub_agent(
+        self,
+        agent_name: str,
+        task: str,
+        context: dict
+    ) -> AsyncIterator[dict]:
+        """Delegate task to a sub-agent"""
+        from agents.registry import AgentRegistry
+
+        agent = AgentRegistry.get_agent(agent_name)
+        if not agent:
+            yield {"type": "error", "error": f"子Agent不存在: {agent_name}"}
+            return
+
+        yield {"type": "sub_agent_start", "agent": agent_name, "task": task}
+
+        async for event in agent.execute(task, context):
+            yield event
+
+        yield {"type": "sub_agent_done", "agent": agent_name}

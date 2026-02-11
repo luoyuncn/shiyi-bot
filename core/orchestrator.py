@@ -90,6 +90,12 @@ class Orchestrator:
         await ToolRegistry.initialize(self.config.tools)
         logger.info(f"已注册 {len(ToolRegistry.list_tools())} 个工具")
 
+        # Initialize Agent registry
+        agent_config = getattr(self.config, 'agent', {}) or {}
+        if isinstance(agent_config, dict) and agent_config.get("enable_sub_agents", False):
+            from agents.registry import AgentRegistry
+            await AgentRegistry.initialize(self.config)
+
         # Initialize agent core
         await self.agent_core.initialize()
 

@@ -69,6 +69,11 @@ audio:
   chunk_size: 1024
   input_channels: 2  # UGREEN Camera 是双声道，read_chunk 会自动下混为单声道
 
+# Agent配置
+agent:
+  enable_sub_agents: true
+  max_context_tokens: 4000
+
 # 工具配置
 tools:
   builtin:
