@@ -53,3 +53,19 @@ audio:
   output_device_index: 0  # bcm2835 Headphones 3.5mm耳机口
   chunk_size: 1024
   input_channels: 2  # UGREEN Camera 是双声道，read_chunk 会自动下混为单声道
+
+# 工具配置
+tools:
+  builtin:
+    - file_operations
+    - execute_shell
+    - search_web
+  mcp:
+    enabled: false
+    servers: []
+
+# 记忆系统配置
+memory:
+  sqlite_path: "data/sessions.db"
+  cache_size: 100
+  auto_flush_interval: 60

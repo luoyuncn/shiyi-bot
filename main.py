@@ -92,7 +92,7 @@ _ensure_alsa_config()
 from loguru import logger
 from config.settings import load_config
 from utils.logger import setup_logger
-from core.assistant import AssistantCore
+from core.orchestrator import Orchestrator
 
 
 async def main():
@@ -112,8 +112,8 @@ async def main():
         # 设置日志
         setup_logger(config.system.log_level)
 
-        # 初始化助理
-        assistant = AssistantCore(config)
+        # 初始化Orchestrator
+        orchestrator = Orchestrator(config)
 
         # 处理退出信号
         loop = asyncio.get_running_loop()
@@ -129,12 +129,12 @@ async def main():
             except NotImplementedError:
                 pass
 
-        # 启动助理
-        run_task = asyncio.create_task(assistant.start())
+        # 启动
+        run_task = asyncio.create_task(orchestrator.start())
 
         # 等待退出信号
         await stop_event.wait()
-        await assistant.stop()
+        await orchestrator.stop()
         run_task.cancel()
         await asyncio.gather(run_task, return_exceptions=True)
 
@@ -145,9 +145,6 @@ async def main():
         logger.exception(f"💥 程序异常退出: {e}")
 
     finally:
-        if 'assistant' in locals():
-            await assistant.cleanup()
-
         logger.info("=" * 60)
         logger.info("🏠 ShiYiBot已关闭，再见！")
         logger.info("=" * 60)
