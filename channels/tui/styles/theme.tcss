@@ -22,46 +22,68 @@ ChatView {
     scrollbar-size: 1 1;
 }
 
-/* Message spacing */
+/* Message Container (Full Width) */
 UserMessage {
-    margin: 2 0 1 0;
+    width: 100%;
+    height: auto;
+    align-horizontal: right;
     padding: 1 2;
-    background: #1E1F20;  /* Darker surface for user */
-    border-radius: 10px;
-    color: #E3E3E3;
-    max-width: 80%;
+    margin-top: 1;
 }
 
 AssistantMessage {
-    margin: 1 0 2 0;
-    padding: 0 1;
-    background: #131314;
-    color: #E3E3E3;
+    width: 100%;
+    height: auto;
+    align-horizontal: left;
+    padding: 1 2;
+    margin-top: 1;
 }
 
-/* User label */
-UserMessage > .message-label {
-    color: #A8C7FA; /* Gemini Blue */
+/* Inner Bubble Styling */
+UserMessage > .bubble {
+    background: #2B2D31; /* Lighter dark gray for visibility */
+    color: #E3E3E3;
+    padding: 1 2;
+    height: auto;
+    width: auto;
+    min-width: 20;  /* Prevent crushing */
+    max-width: 80%;
+    border-left: solid #A8C7FA; /* Blue accent line instead of radius */
+}
+
+AssistantMessage > .bubble {
+    background: #1e1e1e; /* Standard dark gray */
+    color: #E3E3E3;
+    padding: 1 2;
+    height: auto;
+    width: auto;
+    min-width: 20;
+    max-width: 90%;
+}
+
+/* Labels */
+.message-label {
     text-style: bold;
     margin-bottom: 1;
+    width: 100%;
 }
 
-/* Assistant label */
-AssistantMessage > .message-label {
+UserMessage .message-label {
+    color: #A8C7FA;
+    text-align: right;
+}
+
+AssistantMessage .message-label {
     color: #E8EAED;
-    text-style: bold;
-    margin-bottom: 1;
+    text-align: left;
 }
 
-/* Markdown content */
-AssistantMessage > Markdown {
+/* Markdown Content */
+Markdown {
     background: transparent;
     color: #E3E3E3;
-}
-
-UserMessage > Markdown {
-    background: transparent;
-    color: #E3E3E3;
+    height: auto;
+    width: 100%;
 }
 
 /* System notice */

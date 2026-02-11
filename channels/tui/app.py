@@ -194,8 +194,8 @@ class ShiYiApp(App):
                     if current_assistant_msg is None:
                         current_assistant_msg = await chat.add_assistant_message(current_bubble_text)
                         if first_event:
-                            latency = int((time.monotonic() - t0) * 1000)
-                            status.latency_ms = latency
+                            # Latency tracking removed for now
+                            # latency = int((time.monotonic() - t0) * 1000)
                             first_event = False
                     else:
                         chat.update_assistant_message(current_bubble_text)

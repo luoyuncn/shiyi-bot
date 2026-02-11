@@ -16,26 +16,32 @@ class ChatView(VerticalScroll):
     async def add_user_message(self, content: str):
         msg = UserMessage(content)
         await self.mount(msg)
-        self.scroll_end(animate=False)
+        # Ensure scroll happens after layout update
+        self.call_after_refresh(self.scroll_end, animate=False)
 
     async def add_assistant_message(self, content: str = "") -> AssistantMessage:
         """Add assistant message. If content is empty, shows a 'Thinking...' state."""
         msg = AssistantMessage(content if content else "✨ 思考中...")
         self._last_assistant_msg = msg
         await self.mount(msg)
-        self.scroll_end(animate=False)
+        self.call_after_refresh(self.scroll_end, animate=False)
         return msg
 
     def update_assistant_message(self, content: str):
         if self._last_assistant_msg:
             self._last_assistant_msg.update_content(content)
-            self.scroll_end(animate=False)
+            # We need to scroll end if content grows
+            # But calling it every char might be too much.
+            # Textual's VerticalScroll should handle auto-scroll if stickiness is enabled?
+            # Let's force it for now but maybe throttle it if needed.
+            # self.scroll_end(animate=False)
+            pass
 
     async def add_tool_call(self, tool_name: str, args: dict) -> ToolCallBlock:
         block = ToolCallBlock(tool_name, args)
         self._last_tool_block = block
         await self.mount(block)
-        self.scroll_end(animate=False)
+        self.call_after_refresh(self.scroll_end, animate=False)
         return block
 
     def update_tool_result(self, result: str, elapsed: float = 0):

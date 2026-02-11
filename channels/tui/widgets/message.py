@@ -1,6 +1,6 @@
 """Message widgets — user, assistant, system, error"""
 from textual.widgets import Static, Markdown
-from textual.containers import Vertical
+from textual.containers import Vertical, Container
 
 
 class UserMessage(Vertical):
@@ -11,8 +11,10 @@ class UserMessage(Vertical):
         self.content = content
 
     def compose(self):
-        yield Static("👤 你", classes="message-label")
-        yield Static(self.content)
+        # Bubble container for the message content
+        with Container(classes="bubble"):
+            yield Static("You", classes="message-label")
+            yield Markdown(self.content)
 
 
 class AssistantMessage(Vertical):
@@ -23,8 +25,9 @@ class AssistantMessage(Vertical):
         self._content = content
 
     def compose(self):
-        yield Static("✦ 十一", classes="message-label")
-        yield Markdown(self._content)
+        with Container(classes="bubble"):
+            yield Static("✨ ShiYi", classes="message-label")
+            yield Markdown(self._content)
 
     def update_content(self, content: str):
         self._content = content

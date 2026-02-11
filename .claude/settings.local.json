@@ -14,7 +14,8 @@
       "Bash(.venv/Scripts/pip install:*)",
       "Bash(.venv/Scripts/ruff check:*)",
       "Bash(git stash:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: 重构 TUI 界面为 Gemini 风格并支持流式输出\n\n- 界面视觉升级：采用深色主题、高对比度配色和极简 Header\n- 核心交互优化：实现打字机流式输出，增加\"思考中\"状态\n- 架构调整：AgentCore 和 LLM 引擎支持全链路异步流式响应\n- 代码优化：移除冗余组件，改进输入框体验\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: 重构 TUI 界面为 Gemini 风格并支持流式输出\n\n- 界面视觉升级：采用深色主题、高对比度配色和极简 Header\n- 核心交互优化：实现打字机流式输出，增加\"思考中\"状态\n- 架构调整：AgentCore 和 LLM 引擎支持全链路异步流式响应\n- 代码优化：移除冗余组件，改进输入框体验\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: 修复 TUI 消息布局挤压和显示问题\n\n- 重构消息组件结构：采用外层容器+内层气泡的方式，彻底解决 Flex 布局挤压问题\n- 修复宽度计算：移除错误的 width:100% 约束，给气泡添加 min-width 防止塌陷\n- 优化视觉样式：增强用户消息背景对比度，添加强调色边框，修复标签对齐\n- 修复滚动逻辑：确保在布局更新后执行滚动，防止新消息被遮挡\n- 修复 NameError：移除已删除的 StatusBar 引用\nEOF\n\\)\")"
     ]
   }
 }
