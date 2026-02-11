@@ -9,7 +9,7 @@ from typing import Optional
 
 class SystemConfig(BaseModel):
     """系统配置"""
-    name: str = "ShiYiBot"
+    name: str = "Shiyi"
     log_level: str = "INFO"
     audio_sample_rate: int = 16000
 

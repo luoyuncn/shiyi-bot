@@ -146,10 +146,14 @@ async def main():
 
     finally:
         logger.info("=" * 60)
-        logger.info("🏠 ShiYiBot已关闭，再见！")
+        logger.info("🏠 Shiyi已关闭，再见！")
         logger.info("=" * 60)
 
 
-if __name__ == "__main__":
-    # 运行主程序
+def run():
+    """Entry point for `shiyi` CLI command."""
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()

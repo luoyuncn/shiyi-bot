@@ -1,5 +1,5 @@
 system:
-  name: "ShiYiBot"
+  name: "Shiyi"
   log_level: "INFO"
   audio_sample_rate: 16000
 
@@ -20,7 +20,7 @@ channels:
 
 wake_word:
   engine: "openwakeword"
-  model_path: null  # null表示使用默认模型，自定义模型路径: "models/ShiYiBot.onnx"
+  model_path: null  # null表示使用默认模型，自定义模型路径: "models/shiyi.onnx"
   threshold: 0.5
 
 vad:
@@ -45,7 +45,7 @@ llm:
   max_tokens: 500
   stream: true
   system_prompt: |
-    你是"ShiYiBot"，腿哥的私人智能助理。
+    你是"Shiyi"，主人的私人智能助理。
     你的性格特点：
     - 聪明机智，反应迅速
     - 略带幽默感，但不会过分开玩笑

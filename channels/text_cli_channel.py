@@ -115,7 +115,7 @@ class TextCLIChannel(BaseChannel):
 
     def _print_welcome(self):
         print("=" * 60)
-        print("🏠 ShiYiBot - CLI模式")
+        print("🏠 Shiyi - CLI模式")
         print("命令: /new /list /switch <id> /help")
         print("=" * 60)
 

@@ -38,7 +38,7 @@ class TextAPIChannel(BaseChannel):
         self.config = config
         self.session_manager = session_manager
         self.agent_core = agent_core
-        self.app = FastAPI(title="ShiYiBot API", version="1.0.0")
+        self.app = FastAPI(title="Shiyi API", version="2.0.0")
 
         # Configure CORS
         self.app.add_middleware(

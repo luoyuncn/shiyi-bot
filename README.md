@@ -1,153 +1,216 @@
-# ShiYiBot - 私人智能助理 V2.0
+# Shiyi — 私人定制智能助手
 
-基于树莓派4B的智能助手，支持**语音**、**CLI文字**、**HTTP API** 三通道并行运行，具备工具调用、子Agent协作和会话持久化能力。
+> 懂你的助手，部署在你自己的主机上。
+
+Shiyi 是一个私人定制的中文智能助手，支持**语音**、**CLI**、**HTTP API** 三通道并行运行，具备工具调用、子 Agent 协作和多会话持久化能力。可部署于任意主机（Linux / macOS / Windows），语音功能可选。
+
+---
 
 ## 功能特性
 
-### 通道（三选一或并行）
+### 三通道并行
 
-| 通道 | 说明 | 启用方式 |
+| 通道 | 说明 | 配置开关 |
 |------|------|---------|
-| 语音通道 | 唤醒词 → VAD录音 → STT → LLM → TTS | `channels.voice.enabled: true` |
-| CLI通道 | 终端文字交互，支持多会话管理 | `channels.cli.enabled: true` |
-| API通道 | FastAPI HTTP服务，JSONL流式响应 | `channels.api.enabled: true` |
+| CLI | 终端文字交互，支持多会话管理 | `channels.cli.enabled: true` |
+| API | FastAPI HTTP 服务，JSONL 流式响应 | `channels.api.enabled: true` |
+| 语音 | 唤醒词 → VAD 录音 → STT → LLM → TTS | `channels.voice.enabled: true` |
 
 ### 工具调用
 
-LLM可调用以下内置工具：
+LLM 可主动调用内置工具：
 
 | 工具 | 功能 |
 |------|------|
-| `search_web` | DuckDuckGo搜索，无需API密钥 |
-| `file_operations` | 读写文件（read/write/append/list）|
-| `execute_shell` | 执行Shell命令（含安全黑名单）|
-| MCP工具 | 可接入外部MCP协议工具服务器 |
+| `search_web` | DuckDuckGo 搜索，无需 API 密钥 |
+| `file_operations` | 文件读写（read / write / append / list）|
+| `execute_shell` | Shell 命令执行（含安全黑名单）|
+| MCP 工具 | 可接入任意外部 MCP 协议工具服务器 |
 
-### 子Agent系统
+### 子 Agent 系统
 
-主Agent可将任务委派给专业子Agent：
+主 Agent 可将任务委派给专业子 Agent：
 
-- **code_assistant** — 代码编写、调试、测试（temperature=0.3）
-- **general_qa** — 知识查询、分析推理（temperature=0.7）
+- **code_assistant** — 代码编写、调试、执行（temperature=0.3）
+- **general_qa** — 知识问答、分析推理（temperature=0.7）
 
-### 会话管理
+工具与 Agent 均支持自动发现，放入对应目录即可生效，无需手动注册。
 
-- SQLite持久化 + LRU内存缓存（双层架构）
-- 单用户多会话隔离
-- 自动token窗口管理
+### 会话记忆
+
+- SQLite 持久化 + LRU 内存缓存（双层架构）
+- 多会话隔离，随时切换上下文
+- 自动 token 窗口管理
 
 ---
 
 ## 快速开始
 
-### 1. 环境要求
+### 环境要求
 
 - Python 3.10+
 - [uv](https://github.com/astral-sh/uv) 包管理工具
 
-### 2. 安装
+```bash
+# 安装 uv（如未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"  # Windows
+```
+
+### 安装
 
 ```bash
-git clone <your-repo-url> shiyi-bot
-cd shiyi-bot
+git clone https://github.com/your-username/shiyi.git
+cd shiyi
 
-# 创建虚拟环境并安装依赖
 uv venv
-source .venv/bin/activate   # Linux/Mac
+source .venv/bin/activate   # Linux / macOS
 .venv\Scripts\activate      # Windows
 
 uv pip install -e .
 ```
 
-### 3. 配置
+### 配置
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入 API 密钥
 ```
 
-需要配置的密钥：
+编辑 `.env`，至少填入 LLM 密钥：
 
 ```env
+# 必填
 DEEPSEEK_API_KEY=your_key_here
 
-# 仅语音通道需要：
+# 仅语音通道需要（腾讯云一句话识别）
 TENCENT_APP_ID=your_app_id
 TENCENT_SECRET_ID=your_secret_id
 TENCENT_SECRET_KEY=your_secret_key
 ```
 
-### 4. 运行
+### 启动
 
 ```bash
-# 默认启动 CLI 文字通道（config.yaml 中 cli.enabled: true）
-python main.py
+# 方式一：直接运行（推荐）
+shiyi
 
-# 同时启动 CLI + API 通道
-# 修改 config.yaml: channels.api.enabled: true
+# 方式二：python 入口
 python main.py
+```
+
+默认启动 CLI 通道。如需同时开启 API 或语音通道，编辑 `config/config.yaml`：
+
+```yaml
+channels:
+  cli:
+    enabled: true
+  api:
+    enabled: true   # 同时启动 FastAPI，监听 :8000
+  voice:
+    enabled: false  # 需要麦克风硬件
 ```
 
 ---
 
-## CLI 通道使用
+## 使用说明
+
+### CLI 通道
 
 ```
-ShiYiBot > 你好
+👤 你: 你好
 
-ShiYiBot > 帮我搜索一下 Python asyncio 最佳实践
-[工具调用] search_web: {"query": "Python asyncio 最佳实践"}
-[工具结果] search_web: 搜索结果：...
+👤 你: 帮我搜索 Python asyncio 最佳实践
+[调用工具: search_web]
+[工具返回]
 这里是搜索结果的总结...
 
-ShiYiBot > /new       # 创建新会话
-ShiYiBot > /list      # 列出所有会话
-ShiYiBot > /switch    # 切换会话
-ShiYiBot > /help      # 帮助
-Ctrl+C                # 退出
+👤 你: /new          # 创建新会话
+👤 你: /list         # 列出所有会话
+👤 你: /switch <id>  # 切换会话
+👤 你: /help         # 帮助
+Ctrl+C               # 退出
 ```
 
----
+### API 通道
 
-## API 通道
+启用后默认监听 `http://0.0.0.0:8000`，Swagger 文档见 `/docs`。
 
-启用后默认监听 `http://0.0.0.0:8000`。
-
-### 端点
+**端点列表：**
 
 ```
-POST /api/chat              非流式对话
-POST /api/chat/stream       流式对话（JSONL格式）
-GET  /api/sessions          列出会话
-POST /api/sessions          创建会话
-DELETE /api/sessions/{id}   删除会话
-GET  /health                健康检查
+POST   /api/chat              非流式对话
+POST   /api/chat/stream       流式对话（JSONL）
+GET    /api/sessions          列出所有会话
+POST   /api/sessions          创建新会话
+DELETE /api/sessions/{id}     删除会话
+GET    /health                健康检查
 ```
 
-### 流式响应格式（JSONL）
+**流式响应格式（JSONL）：**
 
 ```json
+{"type": "session", "session_id": "xxx"}
 {"type": "text", "content": "你好"}
 {"type": "tool_call", "tool": "search_web", "args": {"query": "..."}}
 {"type": "tool_result", "tool": "search_web", "result": "..."}
-{"type": "sub_agent_start", "agent": "code_assistant", "task": "..."}
-{"type": "sub_agent_done", "agent": "code_assistant"}
 {"type": "done"}
 ```
 
-### 示例请求
+**示例请求：**
 
 ```bash
-# 流式对话
 curl -X POST http://localhost:8000/api/chat/stream \
   -H "Content-Type: application/json" \
-  -d '{"message": "帮我写一个 Python 冒泡排序", "session_id": "test-1"}'
-
-# 创建会话
-curl -X POST http://localhost:8000/api/sessions \
-  -H "Content-Type: application/json" \
-  -d '{"metadata": {"source": "curl"}}'
+  -d '{"message": "帮我写一个 Python 冒泡排序"}'
 ```
+
+---
+
+## 部署
+
+### 普通主机（常驻后台）
+
+```bash
+# 使用 systemd（Linux）
+sudo tee /etc/systemd/system/shiyi.service <<EOF
+[Unit]
+Description=Shiyi Assistant
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/shiyi
+ExecStart=/opt/shiyi/.venv/bin/shiyi
+Restart=on-failure
+EnvironmentFile=/opt/shiyi/.env
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable --now shiyi
+sudo journalctl -u shiyi -f   # 查看日志
+```
+
+### Docker
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY . .
+RUN pip install uv && uv pip install -e . --system
+CMD ["shiyi"]
+```
+
+```bash
+docker build -t shiyi .
+docker run -d --env-file .env -p 8000:8000 shiyi
+```
+
+### 仅启用 API + CLI（无语音依赖）
+
+如果不需要语音功能，可裁剪依赖：确保 `config.yaml` 中 `channels.voice.enabled: false`，无需安装 PyAudio / torch 等重型依赖。
+
+> 注意：`pyproject.toml` 目前包含完整依赖。如需轻量部署，可手动跳过 pyaudio / torch / torchaudio 的安装。
 
 ---
 
@@ -156,36 +219,31 @@ curl -X POST http://localhost:8000/api/sessions \
 主配置文件：`config/config.yaml`
 
 ```yaml
-# 通道开关
-channels:
-  voice:
-    enabled: false   # 需要硬件（麦克风）
-  cli:
-    enabled: true
-  api:
-    enabled: false
-    host: "0.0.0.0"
-    port: 8000
+system:
+  name: "Shiyi"
+  log_level: "INFO"   # DEBUG 可查看详细日志
 
-# Agent配置
+channels:
+  cli:    {enabled: true}
+  api:    {enabled: false, host: "0.0.0.0", port: 8000}
+  voice:  {enabled: false}
+
+llm:
+  api_base: "https://api.deepseek.com/v1"
+  model: "deepseek-chat"
+  system_prompt: |
+    你是"Shiyi"，主人的私人智能助理。...
+
 agent:
-  enable_sub_agents: true   # 启用子Agent委派
+  enable_sub_agents: true
   max_context_tokens: 4000
 
-# 工具配置
 tools:
-  builtin:
-    - file_operations
-    - execute_shell
-    - search_web
+  builtin: [file_operations, execute_shell, search_web]
   mcp:
     enabled: false
-    servers: []
-    # 接入外部MCP服务器示例：
-    # - url: "http://localhost:3000"
-    #   name: "my_tools"
+    servers: []   # 接入外部 MCP 服务器
 
-# 记忆系统
 memory:
   sqlite_path: "data/sessions.db"
   cache_size: 100
@@ -193,51 +251,15 @@ memory:
 
 ---
 
-## 项目结构
+## 扩展
 
-```
-shiyi-bot/
-├── main.py                    # 主入口
-├── config/
-│   ├── config.yaml            # 主配置
-│   └── settings.py            # 配置加载（Pydantic）
-├── channels/                  # 通道层
-│   ├── base.py                # 通道抽象基类
-│   ├── text_cli_channel.py    # CLI通道
-│   ├── text_api_channel.py    # FastAPI通道
-│   └── voice_channel.py       # 语音通道（包装器）
-├── core/
-│   ├── orchestrator.py        # 总调度器
-│   ├── agent_core.py          # Agent核心（LLM推理+工具调用）
-│   ├── session_manager.py     # 会话管理器
-│   ├── assistant.py           # 语音版控制器（保留）
-│   ├── state_machine.py       # 状态机
-│   └── sentence_splitter.py   # 句子切分器
-├── agents/                    # 子Agent系统
-│   ├── base_agent.py          # 抽象基类（含共享LLM循环）
-│   ├── registry.py            # Agent注册器
-│   └── builtin/
-│       ├── code_assistant.py  # 代码助手
-│       └── general_qa.py      # 通用问答
-├── tools/                     # 工具系统
-│   ├── base.py                # 工具基类
-│   ├── registry.py            # 工具注册器
-│   ├── mcp_client.py          # MCP协议客户端
-│   └── builtin/
-│       ├── search_web.py      # DuckDuckGo搜索
-│       ├── file_operations.py # 文件操作
-│       └── execute_shell.py   # Shell命令执行
-├── memory/
-│   ├── storage.py             # SQLite异步存储
-│   └── cache.py               # LRU内存缓存
-├── engines/                   # AI引擎（语音版）
-│   ├── llm/                   # LLM引擎（文字版复用）
-│   ├── stt/                   # 腾讯云语音识别
-│   ├── tts/                   # Edge-TTS语音合成
-│   ├── vad/                   # Silero VAD
-│   └── wake_word/             # openWakeWord
-└── audio/                     # 音频处理
-```
+### 添加自定义工具
+
+在 `tools/builtin/` 下新建文件，实现 `Tool` 类并提供 `definition` 属性，`ToolRegistry` 会自动发现并注册。
+
+### 添加自定义子 Agent
+
+在 `agents/builtin/` 下新建文件，继承 `BaseAgent`，`AgentRegistry` 自动发现。
 
 ---
 
@@ -245,57 +267,17 @@ shiyi-bot/
 
 | 模块 | 技术 |
 |------|------|
-| LLM | DeepSeek（OpenAI兼容接口）|
-| Web框架 | FastAPI + Streamable HTTP |
-| 流式协议 | JSONL (application/x-ndjson) |
+| LLM | DeepSeek（OpenAI 兼容接口，可替换） |
+| Web 框架 | FastAPI + JSONL 流式响应 |
 | 数据库 | SQLite + SQLAlchemy async |
-| 缓存 | LRU内存缓存 |
-| 搜索 | DuckDuckGo (ddgs，免费无需API) |
-| MCP工具 | httpx异步HTTP客户端 |
-| 唤醒词 | openWakeWord（本地）|
-| VAD | Silero VAD (torch) |
-| STT | 腾讯云一句话识别 |
-| TTS | Microsoft Edge-TTS |
+| 缓存 | LRU 内存缓存 |
+| 搜索 | DuckDuckGo（ddgs，无需 API Key）|
+| MCP | httpx 异步 HTTP 客户端 |
+| 唤醒词 | openWakeWord（本地，可选）|
+| VAD | Silero VAD（可选）|
+| STT | 腾讯云一句话识别（可选）|
+| TTS | Microsoft Edge-TTS（可选）|
 | 包管理 | uv |
-
----
-
-## 故障排除
-
-### PyAudio安装失败
-
-**Windows:**
-```bash
-# 下载预编译wheel: https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio
-uv pip install PyAudio-0.2.14-cpXX-cpXX-win_amd64.whl
-```
-
-**Linux:**
-```bash
-sudo apt install portaudio19-dev
-uv pip install pyaudio
-```
-
-### 找不到音频设备
-
-```python
-from audio.recorder import AudioRecorder
-AudioRecorder().list_devices()
-```
-
-在 `config/config.yaml` 中指定设备索引：
-
-```yaml
-audio:
-  input_device_index: 1
-  output_device_index: 2
-```
-
-### API调用失败
-
-1. 检查 `.env` 文件中的密钥是否正确
-2. 检查网络连接
-3. 开启 DEBUG 日志：`config.yaml` 中 `system.log_level: "DEBUG"`
 
 ---
 

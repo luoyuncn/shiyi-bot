@@ -1,7 +1,7 @@
 [project]
-name = "ShiYiBot"
-version = "1.0.0"
-description = "私人语音助理'ShiYiBot' - 树莓派智能助手"
+name = "shiyi"
+version = "2.0.0"
+description = "Shiyi — 私人定制智能助手，可部署于任意主机"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -30,6 +30,9 @@ dependencies = [
     "ddgs>=9.10.0",
     "httpx>=0.28.1",
 ]
+
+[project.scripts]
+shiyi = "main:run"
 
 [project.optional-dependencies]
 dev = [
