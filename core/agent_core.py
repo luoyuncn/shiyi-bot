@@ -2,6 +2,7 @@
 import json
 from datetime import datetime
 from typing import AsyncIterator, Any
+from types import SimpleNamespace
 from loguru import logger
 
 from engines.llm.openai_compatible_engine import OpenAICompatibleEngine
@@ -13,17 +14,31 @@ class AgentCore:
 
     def __init__(self, config):
         self.config = config
+        self.llm_config = self._normalize_llm_config(config.llm)
 
         # LLM engine
         self.llm_engine = OpenAICompatibleEngine(
-            api_base=config.llm.api_base,
-            api_key=config.llm.api_key,
-            model=config.llm.model,
-            system_prompt=config.llm.system_prompt,
-            temperature=config.llm.temperature,
-            max_tokens=config.llm.max_tokens
+            api_base=self.llm_config.api_base,
+            api_key=self.llm_config.api_key,
+            model=self.llm_config.model,
+            system_prompt=self.llm_config.system_prompt,
+            temperature=self.llm_config.temperature,
+            max_tokens=self.llm_config.max_tokens
         )
         self.max_tool_iterations = 5  # 防止无限循环
+
+    @staticmethod
+    def _normalize_llm_config(llm_config: Any) -> Any:
+        """Allow both object-style and dict-style llm configs."""
+        if isinstance(llm_config, dict):
+            defaults = {
+                "temperature": 0.7,
+                "max_tokens": 500,
+                "system_prompt": "",
+            }
+            defaults.update(llm_config)
+            return SimpleNamespace(**defaults)
+        return llm_config
 
     async def initialize(self):
         """Initialize agent core"""
@@ -60,8 +75,8 @@ class AgentCore:
 
             # Build system prompt with dynamic model name and current time
             now = datetime.now().strftime("%Y年%m月%d日 %H:%M")
-            system_content = self.config.llm.system_prompt.format(
-                model=self.config.llm.model,
+            system_content = self.llm_config.system_prompt.format(
+                model=self.llm_config.model,
                 datetime=now
             )
             full_messages = [

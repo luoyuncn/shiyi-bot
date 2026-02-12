@@ -77,8 +77,13 @@ class ToolsConfig(BaseModel):
 class MemoryConfig(BaseModel):
     """Memory configuration"""
     sqlite_path: str = "data/sessions.db"
+    memory_root: str = "data/memory"
     cache_size: int = 100
     auto_flush_interval: int = 60
+    embedding_dimension: int = 128
+    embedding_retry_limit: int = 3
+    embedding_retry_base_seconds: int = 10
+    embedding_poll_interval: int = 5
 
 
 class TUIConfig(BaseModel):

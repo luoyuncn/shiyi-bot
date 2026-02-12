@@ -231,7 +231,9 @@ class ShiYiApp(App):
             context = await self.session_manager.get_session(
                 self.current_session.session_id
             )
-            messages = context.messages
+            messages = await self.session_manager.prepare_messages_for_agent(
+                context.messages
+            )
 
             # Track timing
             t0 = time.monotonic()
