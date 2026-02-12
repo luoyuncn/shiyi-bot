@@ -51,6 +51,12 @@ models/*.pth
 *.mp3
 test_audio/
 
+# Fonts (downloaded locally, not committed)
+fonts/*.zip
+fonts/*/
+fonts/__pycache__/
+
 # OS
 .DS_Store
 Thumbs.db
+nul

@@ -81,10 +81,16 @@ class MemoryConfig(BaseModel):
     auto_flush_interval: int = 60
 
 
+class TUIConfig(BaseModel):
+    """TUI 终端界面配置"""
+    nerd_font: bool = False  # 启用 Nerd Font 图标（需用户自行安装字体）
+
+
 class Settings(BaseModel):
     """完整配置"""
     system: SystemConfig
     channels: dict = {}
+    tui: TUIConfig = TUIConfig()
     wake_word: WakeWordConfig
     vad: VADConfig
     stt: STTConfig

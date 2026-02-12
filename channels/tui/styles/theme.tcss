@@ -1,11 +1,11 @@
-/* ShiYi TUI — Night Owl Refined
- * 配色基于 Tokyo Night 色系，针对低光终端环境优化
+/* ShiYi TUI — Warm Amber Theme
+ * 配色灵感：60-30-10 法则（深暖灰 / 浅灰白 / 活力橙）
  * 兼容 xterm-256color / Windows Terminal / iTerm2 / GNOME Terminal
  * 适配终端尺寸: 80×24 ~ 256×60 */
 
 Screen {
-    background: #1a1b26;
-    color: #c0caf5;
+    background: #1a1a1a;
+    color: #e0e0e0;
     align-horizontal: center;
 }
 
@@ -26,7 +26,7 @@ WelcomeView {
     margin: 1 0 0 0;
 }
 
-/* ── User Message (右对齐气泡) ───────────────── */
+/* ── User Message (右对齐 + 右竖线，与 AI 对称) ── */
 UserMessage {
     width: 100%;
     height: auto;
@@ -34,14 +34,25 @@ UserMessage {
     margin: 1 0 0 0;
 }
 
-.user-bubble {
-    background: #28304a;
-    color: #dcdfe4;
-    padding: 0 2;
-    max-width: 70%;
+.user-label {
+    color: #7a9cc6;
+    text-style: bold;
+    text-align: right;
+    padding: 0 1 0 1;
+    height: 1;
+    width: 100%;
+    border-right: solid #7a9cc6;
 }
 
-/* ── Assistant Message (左对齐 Markdown) ─────── */
+.user-bubble {
+    color: #f0ece8;
+    text-align: right;
+    padding: 0 1 0 1;
+    width: 1fr;
+    border-right: solid #7a9cc6;
+}
+
+/* ── Assistant Message (左对齐 + 橙色左竖线) ── */
 AssistantMessage {
     width: 100%;
     height: auto;
@@ -49,40 +60,50 @@ AssistantMessage {
     margin: 1 0 0 0;
 }
 
+.ai-label {
+    color: #FFA500;
+    text-style: bold;
+    padding: 0 1 0 1;
+    height: 1;
+    width: 100%;
+    border-left: solid #FFA500;
+}
+
 .ai-content {
     background: transparent;
-    color: #c0caf5;
-    padding: 0 1;
+    color: #e0e0e0;
+    padding: 0 1 0 1;
     width: 1fr;
+    border-left: solid #FFA500;
 }
 
 /* ── Markdown ───────────────────────────────── */
 Markdown {
     background: transparent;
-    color: #c0caf5;
+    color: #e0e0e0;
     padding: 0;
     margin: 0;
 }
 
 MarkdownH1, MarkdownH2, MarkdownH3 {
     background: transparent;
-    color: #7aa2f7;
+    color: #FFA500;
     text-style: bold;
     margin: 1 0 0 0;
     border: none;
 }
 
 MarkdownCodeBlock {
-    background: #13141c;
-    border-left: solid #ff9e64;
+    background: #1c1a18;
+    border-left: solid #FFD700;
     padding: 1;
     margin: 1 0;
-    color: #c0caf5;
+    color: #e0e0e0;
 }
 
 MarkdownInlineCode {
-    background: #1f2233;
-    color: #ff9e64;
+    background: #2a2520;
+    color: #FFD700;
     text-style: none;
 }
 
@@ -91,7 +112,7 @@ ThinkingIndicator {
     width: 100%;
     height: 1;
     padding: 0 1;
-    color: #565f89;
+    color: #7a7a7a;
     margin: 1 0 0 0;
 }
 
@@ -99,7 +120,7 @@ ThinkingIndicator {
 SystemNotice {
     width: 100%;
     text-align: left;
-    color: #565f89;
+    color: #7a7a7a;
     padding: 0 1;
     text-style: italic;
 }
@@ -125,19 +146,19 @@ ToolCallBlock {
 }
 
 ToolCallBlock > CollapsibleTitle {
-    color: #565f89;
+    color: #7a7a7a;
     background: transparent;
     padding: 0;
 }
 
 ToolCallBlock > CollapsibleTitle:hover {
-    color: #ff9e64;
+    color: #FFA500;
 }
 
 ToolCallBlock > Contents {
     padding-left: 2;
-    border-left: solid #2e3c56;
-    color: #565f89;
+    border-left: solid #3a3530;
+    color: #7a7a7a;
 }
 
 .tool-result {
@@ -153,24 +174,24 @@ ToolCallBlock > Contents {
     margin: 0 0 1 0;
 }
 
-/* ── Input Area (悬浮岛) ────────────────────── */
+/* ── Input Area (悬浮岛 — 圆角边框) ─────────── */
 #input-area {
     height: auto;
     min-height: 1;
     width: 80%;
     max-width: 120;
     padding: 0 1;
-    background: #1f2335;
-    border-top: solid #2e3c56;
+    background: #252220;
+    border: round #2a2520;
 }
 
-/* Processing state — border accent turns orange */
+/* Processing state — border turns orange */
 #input-area.processing {
-    border-top: solid #ff9e64;
+    border: round #FFA500;
 }
 
 .prompt-symbol {
-    color: #ff9e64;
+    color: #FFA500;
     width: 2;
     height: 1;
     padding: 0;
@@ -180,7 +201,7 @@ ToolCallBlock > Contents {
 #message-input {
     background: transparent;
     border: none;
-    color: #c0caf5;
+    color: #e0e0e0;
     width: 1fr;
     height: auto;
     min-height: 1;
@@ -192,7 +213,7 @@ ToolCallBlock > Contents {
 }
 
 #message-input > .input--placeholder {
-    color: #3b4261;
+    color: #4a4540;
 }
 
 /* ── Scrollbar (隐藏) ────────────────────────── */
@@ -205,13 +226,13 @@ ScrollBar {
 LogPanel {
     height: 12;
     dock: bottom;
-    border-top: solid #2e3c56;
-    background: #1a1b26;
+    border-top: solid #3a3530;
+    background: #1a1a1a;
 }
 
 .log-title {
-    background: #1f2335;
-    color: #565f89;
+    background: #252220;
+    color: #7a7a7a;
     padding: 0 1;
     text-style: bold;
 }

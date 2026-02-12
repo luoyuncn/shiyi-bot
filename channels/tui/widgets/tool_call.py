@@ -2,6 +2,8 @@
 import json
 from textual.widgets import Collapsible, Static
 
+from channels.tui.icons import icons
+
 
 class ToolCallBlock(Collapsible):
     """Minimal collapsible block showing a tool call."""
@@ -14,7 +16,7 @@ class ToolCallBlock(Collapsible):
         if len(args_str) > 40:
             args_str = args_str[:38] + "..."
 
-        title = f"  {tool_name} {args_str}"
+        title = f"  {icons.tool} {tool_name} {args_str}"
 
         self._result_static = Static("...", classes="tool-result")
         super().__init__(self._result_static, title=title, collapsed=True, **kwargs)
@@ -28,4 +30,4 @@ class ToolCallBlock(Collapsible):
         self._result_static.update(f"{display_result} ({elapsed:.2f}s)")
 
         # Update title to indicate completion
-        self.title = f"  {self.tool_name}"
+        self.title = f"  {icons.tool} {self.tool_name} {icons.success}"

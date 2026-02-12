@@ -1,4 +1,4 @@
-"""ShiYi TUI Application — main Textual app (Night Owl theme)"""
+"""ShiYi TUI Application — main Textual app (Warm Amber theme)"""
 import time
 
 from loguru import logger
@@ -11,6 +11,7 @@ from .widgets import (
     ChatView,
     LogPanel,
 )
+from channels.tui.icons import icons, init_icons
 
 # Loguru sink ID, used to remove the sink on cleanup
 _log_sink_id: int | None = None
@@ -20,12 +21,11 @@ _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 class ShiYiApp(App):
-    """ShiYi TUI — Night Owl themed terminal interface."""
+    """ShiYi TUI — Warm Amber themed terminal interface."""
 
     CSS_PATH = "styles/theme.tcss"
 
     BINDINGS = [
-        Binding("ctrl+c", "interrupt", "中断/退出", priority=True),
         Binding("ctrl+d", "quit", "退出"),
         Binding("ctrl+l", "clear_chat", "清屏"),
     ]
@@ -43,6 +43,10 @@ class ShiYiApp(App):
         self.session_manager = session_manager
         self.agent_core = agent_core
         self.debug_mode = debug
+
+        # Initialise icon set from config (nerd_font toggle)
+        use_nerd = getattr(getattr(config, "tui", None), "nerd_font", False)
+        init_icons(use_nerd_font=use_nerd)
         self.current_session = None
         self._processing = False
         self._interrupt_requested = False
@@ -60,7 +64,7 @@ class ShiYiApp(App):
         # Centering wrapper — full-width dock, centers the 80% input-area
         with Container(id="input-dock"):
             with Horizontal(id="input-area"):
-                yield Static("\u276f", classes="prompt-symbol")
+                yield Static(icons.prompt, classes="prompt-symbol")
                 yield Input(
                     placeholder="Type a message or command...",
                     id="message-input",
@@ -125,8 +129,26 @@ class ShiYiApp(App):
             self._send_message(text)
 
     def on_key(self, event: events.Key) -> None:
-        """Up/Down arrow keys navigate input history."""
+        """Key handling — Ctrl+C interrupt, Escape refocus, Up/Down history."""
         inp = self.query_one("#message-input", Input)
+
+        # Ctrl+C: only intercept when AI is processing; otherwise let terminal handle copy
+        if event.key == "ctrl+c":
+            if self._processing:
+                self._interrupt_requested = True
+                event.stop()
+                event.prevent_default()
+            else:
+                event.prevent_default()  # prevent app quit, but don't stop()
+            return
+
+        # Escape or any typing key: refocus input if not already focused
+        if not inp.has_focus:
+            if event.key == "escape" or event.is_printable:
+                inp.focus()
+                return
+
+        # Up/Down: navigate input history (only when input has focus)
         if not inp.has_focus:
             return
 
@@ -168,7 +190,7 @@ class ShiYiApp(App):
             if self._prompt_timer:
                 self._prompt_timer.stop()
                 self._prompt_timer = None
-            prompt.update("\u276f")  # restore ❯
+            prompt.update(icons.prompt)  # restore prompt icon
 
     def _tick_prompt(self) -> None:
         """Animate prompt symbol with braille spinner."""
@@ -285,6 +307,7 @@ class ShiYiApp(App):
 
         finally:
             self._set_processing(False)
+            self.query_one("#message-input", Input).focus()
 
     # ── Slash Commands ──────────────────────────────────────
 
@@ -352,7 +375,7 @@ class ShiYiApp(App):
                 "  /help         显示帮助\n"
                 "\n"
                 "快捷键:\n"
-                "  Ctrl+C        中断回复 / 退出\n"
+                "  Ctrl+C        中断回复\n"
                 "  Ctrl+D        退出\n"
                 "  Ctrl+L        清屏"
             )
@@ -360,13 +383,10 @@ class ShiYiApp(App):
         else:
             await chat.add_error(f"未知命令: {cmd}")
 
-    # ── Key Bindings ────────────────────────────────────────
+        # Always refocus input after command
+        self.query_one("#message-input", Input).focus()
 
-    def action_interrupt(self) -> None:
-        if self._processing:
-            self._interrupt_requested = True
-        else:
-            self.exit()
+    # ── Actions ────────────────────────────────────────────
 
     def action_clear_chat(self) -> None:
         chat = self.query_one("#chat-view", ChatView)

@@ -18,6 +18,10 @@ channels:
     port: 8000
     cors_origins: ["*"]
 
+# TUI 终端界面配置
+tui:
+  nerd_font: true  # 设为 true 需先安装 Nerd Font，见 fonts/README.md
+
 wake_word:
   engine: "openwakeword"
   model_path: null
