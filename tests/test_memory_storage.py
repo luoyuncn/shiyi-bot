@@ -42,3 +42,21 @@ async def test_save_and_get_messages():
     assert messages[1].role == "assistant"
 
     await storage.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_keyword_search_messages_with_fts():
+    """FTS-based keyword search should return matching messages."""
+    storage = MemoryStorage(db_path=":memory:")
+    await storage.initialize()
+
+    session_id = await storage.create_session({})
+    await storage.save_message(session_id, "user", "我们之前排查过 Redis timeout 问题")
+    await storage.save_message(session_id, "assistant", "先看连接池和网络延迟")
+
+    results = await storage.search_messages_by_keyword("Redis timeout", limit=5)
+    assert len(results) >= 1
+    assert "Redis" in results[0]["content"]
+    assert results[0]["session_id"] == session_id
+
+    await storage.cleanup()

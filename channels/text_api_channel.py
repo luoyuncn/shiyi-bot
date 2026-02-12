@@ -4,6 +4,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 import json
 from loguru import logger
 
@@ -29,6 +30,19 @@ class SessionResponse(BaseModel):
     created_at: str
     last_active: str
     message_count: int
+
+
+class OnboardingRequest(BaseModel):
+    """Onboarding request payload."""
+    shiyi_identity: str
+    user_identity: str
+    display_name: Optional[str] = None
+
+
+class PendingUpdateRequest(BaseModel):
+    """Pending memory update payload."""
+    status: str
+    cooldown_until: Optional[str] = None
 
 
 class TextAPIChannel(BaseChannel):
@@ -78,7 +92,9 @@ class TextAPIChannel(BaseChannel):
 
                 # Get context and process
                 context = await self.session_manager.get_session(session_id)
-                messages = context.messages
+                messages = await self.session_manager.prepare_messages_for_agent(
+                    context.messages
+                )
 
                 # Collect full response
                 full_response = ""
@@ -128,7 +144,9 @@ class TextAPIChannel(BaseChannel):
 
                 # Get context
                 context = await self.session_manager.get_session(session_id)
-                messages = context.messages
+                messages = await self.session_manager.prepare_messages_for_agent(
+                    context.messages
+                )
 
                 async def generate():
                     """Generate streaming response"""
@@ -215,6 +233,183 @@ class TextAPIChannel(BaseChannel):
                 return {"status": "success"}
             except Exception as e:
                 logger.error(f"Delete session error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/api/memory/user")
+        async def memory_user_state():
+            """Get global user memory state."""
+            try:
+                return await self.session_manager.get_global_user_state()
+            except Exception as e:
+                logger.error(f"Get memory user state error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/api/memory/onboarding")
+        async def memory_onboarding(request: OnboardingRequest):
+            """Complete identity onboarding and persist memory docs."""
+            try:
+                await self.session_manager.complete_identity_onboarding(
+                    shiyi_identity=request.shiyi_identity,
+                    user_identity=request.user_identity,
+                    display_name=request.display_name,
+                )
+                return await self.session_manager.get_global_user_state()
+            except Exception as e:
+                logger.error(f"Memory onboarding error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/api/memory/pending")
+        async def list_memory_pending(status: str = "pending", limit: int = 20):
+            """List pending memory candidates."""
+            try:
+                records = await self.session_manager.list_memory_pending(
+                    status=status,
+                    limit=limit,
+                )
+                return [
+                    {
+                        "id": item.id,
+                        "candidate_fact": item.candidate_fact,
+                        "confidence": item.confidence,
+                        "status": item.status,
+                        "source_message_id": item.source_message_id,
+                        "cooldown_until": item.cooldown_until.isoformat() if item.cooldown_until else None,
+                        "created_at": item.created_at.isoformat(),
+                        "updated_at": item.updated_at.isoformat(),
+                    }
+                    for item in records
+                ]
+            except Exception as e:
+                logger.error(f"List memory pending error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/api/memory/pending/{pending_id}")
+        async def update_memory_pending(pending_id: str, request: PendingUpdateRequest):
+            """Update pending memory status."""
+            try:
+                cooldown_until = None
+                if request.cooldown_until:
+                    cooldown_until = datetime.fromisoformat(request.cooldown_until)
+                await self.session_manager.update_memory_pending_status(
+                    pending_id=pending_id,
+                    status=request.status,
+                    cooldown_until=cooldown_until,
+                )
+                return {"status": "ok"}
+            except Exception as e:
+                logger.error(f"Update memory pending error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/api/memory/facts")
+        async def list_memory_facts(
+            scope: Optional[str] = None,
+            fact_type: Optional[str] = None,
+            status: str = "active",
+            limit: int = 100,
+        ):
+            """List structured memory facts."""
+            try:
+                records = await self.session_manager.list_memory_facts(
+                    scope=scope,
+                    fact_type=fact_type,
+                    status=status,
+                    limit=limit,
+                )
+                return [
+                    {
+                        "id": item.id,
+                        "scope": item.scope,
+                        "fact_type": item.fact_type,
+                        "fact_key": item.fact_key,
+                        "fact_value": item.fact_value,
+                        "confidence": item.confidence,
+                        "status": item.status,
+                        "source_message_id": item.source_message_id,
+                        "created_at": item.created_at.isoformat(),
+                        "updated_at": item.updated_at.isoformat(),
+                    }
+                    for item in records
+                ]
+            except Exception as e:
+                logger.error(f"List memory facts error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/api/memory/events")
+        async def list_memory_events(event_type: Optional[str] = None, limit: int = 100):
+            """List memory pipeline events."""
+            try:
+                records = await self.session_manager.list_memory_events(
+                    event_type=event_type,
+                    limit=limit,
+                )
+                return [
+                    {
+                        "id": item.id,
+                        "event_type": item.event_type,
+                        "operation_id": item.operation_id,
+                        "payload": item.payload,
+                        "created_at": item.created_at.isoformat(),
+                    }
+                    for item in records
+                ]
+            except Exception as e:
+                logger.error(f"List memory events error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/api/memory/search")
+        async def search_memory(q: str, limit: int = 5, mode: str = "hybrid"):
+            """Search historical memory/messages with hybrid or keyword mode."""
+            try:
+                if mode == "keyword":
+                    return await self.session_manager.search_memory_by_keyword(q, limit=limit)
+                return await self.session_manager.search_memory_hybrid(q, limit=limit)
+            except Exception as e:
+                logger.error(f"Search memory error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/api/memory/metrics")
+        async def memory_metrics():
+            """Get memory pipeline metrics."""
+            try:
+                return await self.session_manager.get_memory_metrics()
+            except Exception as e:
+                logger.error(f"Get memory metrics error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/api/memory/embedding-jobs")
+        async def list_embedding_jobs(status: Optional[str] = None, limit: int = 50):
+            """List async embedding jobs."""
+            try:
+                records = await self.session_manager.list_embedding_jobs(status=status, limit=limit)
+                return [
+                    {
+                        "id": item.id,
+                        "source_type": item.source_type,
+                        "source_id": item.source_id,
+                        "status": item.status,
+                        "retry_count": item.retry_count,
+                        "next_retry_at": item.next_retry_at.isoformat() if item.next_retry_at else None,
+                        "last_error": item.last_error,
+                        "created_at": item.created_at.isoformat(),
+                        "updated_at": item.updated_at.isoformat(),
+                    }
+                    for item in records
+                ]
+            except Exception as e:
+                logger.error(f"List embedding jobs error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/api/memory/embedding-jobs/run")
+        async def run_embedding_jobs(max_jobs: int = 20, ignore_schedule: bool = False):
+            """Run embedding queue once (manual trigger)."""
+            try:
+                result = await self.session_manager.run_embedding_pipeline(
+                    max_jobs=max_jobs,
+                    ignore_schedule=ignore_schedule,
+                )
+                return result
+            except Exception as e:
+                logger.error(f"Run embedding jobs error: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.get("/health")
