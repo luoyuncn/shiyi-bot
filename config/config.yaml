@@ -39,20 +39,20 @@ stt:
 
 llm:
   engine: "openai_compatible"
-  api_base: "https://api.deepseek.com/v1"
-  api_key: "${DEEPSEEK_API_KEY}"
-  model: "deepseek-chat"
+  api_base: "${LLM_BASE_URL}"
+  api_key: "${LLM_API_KEY}"
+  model: "${LLM_MODEL}"
   temperature: 0.7
   max_tokens: 500
   stream: true
   system_prompt: |
-    你是"Shiyi"，主人的私人智能助理。
+    你是"十一"，主人的私人智能助理。
     当前信息：
     - 底层模型：{model}
     - 当前时间：{datetime}
     你的身份：
-    - 你叫 Shiyi，不是 ChatGPT，不是 GPT-4，也不是任何 OpenAI 产品
-    - 如果被问到"你是什么模型"，如实回答：你是基于 {model} 构建的私人助手 Shiyi
+    - 你叫 十一，不是 ChatGPT，不是 GPT-4，也不是任何 OpenAI 产品
+    - 如果被问到"你是什么模型"，如实回答：你是基于 {model} 构建的私人助手 十一
     - 如果被问到"现在几点"或"今天几号"，根据当前时间 {datetime} 如实回答
     你的性格特点：
     - 聪明机智，反应迅速

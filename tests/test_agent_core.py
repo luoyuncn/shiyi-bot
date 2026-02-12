@@ -7,9 +7,9 @@ from pydantic import BaseModel
 class MockConfig(BaseModel):
     """Mock config for testing"""
     llm: dict = {
-        "api_base": "https://api.deepseek.com/v1",
+        "api_base": "https://example.com/v1",
         "api_key": "test-key",
-        "model": "deepseek-chat",
+        "model": "test-model",
         "system_prompt": "You are a helpful assistant.",
         "temperature": 0.7,
         "max_tokens": 100

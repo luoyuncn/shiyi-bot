@@ -125,6 +125,23 @@ def _load_dotenv(env_path: Path) -> None:
         os.environ[key] = value
 
 
+def _apply_llm_env_compatibility() -> None:
+    """Normalize LLM env vars and keep backward compatibility."""
+    legacy_to_new = {
+        "DEEPSEEK_API_KEY": "LLM_API_KEY",
+        "DEEPSEEK_API_BASE": "LLM_BASE_URL",
+        "DEEPSEEK_MODEL": "LLM_MODEL",
+    }
+
+    for legacy_var, new_var in legacy_to_new.items():
+        if new_var not in os.environ and legacy_var in os.environ:
+            os.environ[new_var] = os.environ[legacy_var]
+
+    # Keep previous behavior as defaults when provider/model is not explicitly set
+    os.environ.setdefault("LLM_BASE_URL", "https://api.deepseek.com/v1")
+    os.environ.setdefault("LLM_MODEL", "deepseek-chat")
+
+
 def load_config(config_path: str = "config/config.yaml") -> Settings:
     """
     加载配置文件并替换环境变量
@@ -137,6 +154,7 @@ def load_config(config_path: str = "config/config.yaml") -> Settings:
     """
     # 先加载.env到环境变量（若存在）
     _load_dotenv(Path(".env"))
+    _apply_llm_env_compatibility()
 
     # 读取配置文件
     with open(config_path, 'r', encoding='utf-8') as f:
