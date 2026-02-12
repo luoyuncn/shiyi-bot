@@ -56,7 +56,9 @@ class TextCLIChannel(BaseChannel):
 
                 # Get conversation context
                 context = await self.session_manager.get_session(self.current_session.session_id)
-                messages = context.messages + [{"role": "user", "content": user_input}]
+                messages = await self.session_manager.prepare_messages_for_agent(
+                    context.messages
+                )
 
                 # Stream response
                 response_text = ""

@@ -39,9 +39,67 @@ LLM 可主动调用内置工具：
 
 ### 会话记忆
 
-- SQLite 持久化 + LRU 内存缓存（双层架构）
-- 多会话隔离，随时切换上下文
-- 自动 token 窗口管理
+- 三层记忆漏斗：L0（SQLite 原始层）+ L1（Markdown 认知层）+ L2（FTS5 + 向量检索层）
+- 全局唯一用户画像（所有会话共享 `User.md`）
+- 首次身份引导（确认十一人设 + 用户身份后不重复询问）
+- 置信度写入分流：高置信自动写入，中置信进入待确认队列
+- 记忆代谢：`Project.md` 滚动总结、`Insights.md` 热点池（Top-N）
+- 异步 embedding 队列（重试 + dead-letter）与检索降级链路
+
+---
+
+## 记忆系统架构（Memory V2）
+
+### 架构设计图
+
+```mermaid
+flowchart TD
+    U[User Input] --> O[Memory Orchestrator / SessionManager]
+    O --> L0[(L0 SQLite<br/>sessions/messages/facts/pending/events)]
+    O --> L1[[L1 Markdown<br/>ShiYi.md / User.md / Project.md / Insights.md]]
+    O --> L2[(L2 Retrieval<br/>FTS5 + Embeddings)]
+
+    L0 --> RW[Read/Write Pipeline]
+    L1 --> RW
+    L2 --> RW
+
+    RW --> P[Prompt Assembly<br/>Memory Card + Recent Context + Long-term Evidence]
+    P --> A[AgentCore / LLM]
+    A --> RESP[Assistant Response]
+```
+
+### 读取流程图（常驻近期 + 按需长期检索）
+
+```mermaid
+flowchart LR
+    Q[User Query] --> T{触发历史检索?}
+    T -->|否| RC[仅近期上下文 + Memory Card]
+    T -->|是| HY[Hybrid Retrieval]
+    HY --> SEM[Semantic Search<br/>Embeddings]
+    HY --> KW[Keyword Search<br/>FTS5]
+    SEM --> RR[混合重排<br/>0.55*semantic + 0.30*keyword + 0.15*freshness]
+    KW --> RR
+    RR --> EVID[注入 3-5 条证据]
+    RC --> ASM[组装最终 Prompt]
+    EVID --> ASM
+    ASM --> LLM[LLM 生成]
+```
+
+### 写入流程图（置信度分流 + 代谢）
+
+```mermaid
+flowchart LR
+    MSG[User Message] --> SUM[summarize_and_store]
+    SUM --> EXT[候选事实抽取]
+    EXT --> C{Confidence}
+    C -->|>=0.85| HF[写入 memory_facts + User.md/Project.md/Insights.md]
+    C -->|0.60~0.85| PEND[写入 memory_pending]
+    C -->|<0.60| DROP[丢弃]
+    HF --> JOB[enqueue embedding job]
+    JOB --> WKR[Embedding Worker]
+    WKR -->|成功| EMB[(memory_embeddings)]
+    WKR -->|失败重试超限| DLQ[dead-letter]
+```
 
 ---
 
@@ -158,6 +216,16 @@ POST   /api/chat/stream       流式对话（JSONL）
 GET    /api/sessions          列出所有会话
 POST   /api/sessions          创建新会话
 DELETE /api/sessions/{id}     删除会话
+GET    /api/memory/user       全局用户记忆状态
+POST   /api/memory/onboarding 首次身份引导确认
+GET    /api/memory/pending    待确认记忆列表
+POST   /api/memory/pending/{id} 更新待确认记忆状态
+GET    /api/memory/facts      结构化记忆事实
+GET    /api/memory/events     记忆事件流水
+GET    /api/memory/search     记忆检索（hybrid/keyword）
+GET    /api/memory/metrics    记忆观测指标
+GET    /api/memory/embedding-jobs     embedding 队列状态
+POST   /api/memory/embedding-jobs/run 手动触发 embedding worker
 GET    /health                健康检查
 ```
 
@@ -261,7 +329,13 @@ tools:
 
 memory:
   sqlite_path: "data/sessions.db"
+  memory_root: "data/memory"
   cache_size: 100
+  auto_flush_interval: 60
+  embedding_dimension: 128
+  embedding_retry_limit: 3
+  embedding_retry_base_seconds: 10
+  embedding_poll_interval: 5
 ```
 
 ---
@@ -284,7 +358,8 @@ memory:
 |------|------|
 | LLM | DeepSeek（OpenAI 兼容接口，可替换） |
 | Web 框架 | FastAPI + JSONL 流式响应 |
-| 数据库 | SQLite + SQLAlchemy async |
+| 数据库 | SQLite + SQLAlchemy async + FTS5 |
+| 记忆检索 | Hybrid Retrieval（FTS5 + Embedding） |
 | 缓存 | LRU 内存缓存 |
 | TUI | Textual + Rich（终端界面）|
 | 搜索 | DuckDuckGo（ddgs，无需 API Key）|

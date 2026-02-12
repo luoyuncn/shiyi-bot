@@ -97,5 +97,10 @@ tools:
 # 记忆系统配置
 memory:
   sqlite_path: "data/sessions.db"
+  memory_root: "data/memory"
   cache_size: 100
   auto_flush_interval: 60
+  embedding_dimension: 128
+  embedding_retry_limit: 3
+  embedding_retry_base_seconds: 10
+  embedding_poll_interval: 5
