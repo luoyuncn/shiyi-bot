@@ -11,6 +11,7 @@ def test_ensure_initialized_creates_default_documents(tmp_path: Path):
     store.ensure_initialized()
 
     assert store.shiyi_path.exists()
+    assert store.identity_state_path.exists()
     assert store.user_path.exists()
     assert store.project_path.exists()
     assert store.insights_path.exists()
@@ -40,3 +41,17 @@ def test_upsert_user_fact_adds_and_updates_key(tmp_path: Path):
     text = store.user_path.read_text(encoding="utf-8")
     assert "- preferred_tech: Go" in text
     assert text.count("preferred_tech") == 1
+
+
+def test_identity_state_read_and_write(tmp_path: Path):
+    """Identity state should use explicit confirmation marker file."""
+    store = MemoryDocumentStore(str(tmp_path / "memory"))
+    store.ensure_initialized()
+
+    initial_state = store.read_identity_state()
+    assert initial_state["identity_confirmed"] is None
+
+    store.write_identity_state(True, "腿哥")
+    state = store.read_identity_state()
+    assert state["identity_confirmed"] is True
+    assert state["display_name"] == "腿哥"

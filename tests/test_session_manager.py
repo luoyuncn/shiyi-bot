@@ -126,6 +126,146 @@ async def test_prepare_messages_for_agent_uses_onboarding_prompt_when_unconfirme
 
 
 @pytest.mark.asyncio
+async def test_prepare_messages_for_agent_onboarding_prompt_only_once(tmp_path):
+    """When unconfirmed, onboarding prompt should be injected only once globally."""
+    config = MemoryConfig(memory_root=str(tmp_path / "memory"))
+    manager = SessionManager(config)
+    await manager.initialize()
+
+    prepared_first = await manager.prepare_messages_for_agent([{"role": "user", "content": "你好"}])
+    assert prepared_first[0]["role"] == "system"
+    assert "身份初始化" in prepared_first[0]["content"]
+
+    prepared_second = await manager.prepare_messages_for_agent([{"role": "user", "content": "继续聊"}])
+    assert prepared_second[0]["role"] == "user"
+    assert all("身份初始化" not in item["content"] for item in prepared_second if item["role"] == "system")
+
+    state = await manager.get_global_user_state()
+    assert state["identity_confirmed"] is False
+    assert state["onboarding_prompted"] is True
+
+    await manager.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_onboarding_prompt_once_persists_across_restart(tmp_path):
+    """Onboarding first-prompt flag should persist in DB across restarts."""
+    sqlite_path = str(tmp_path / "sessions.db")
+    memory_root = str(tmp_path / "memory")
+    config = MemoryConfig(memory_root=memory_root, sqlite_path=sqlite_path)
+
+    manager = SessionManager(config)
+    await manager.initialize()
+    first = await manager.prepare_messages_for_agent([{"role": "user", "content": "你好"}])
+    assert first[0]["role"] == "system"
+    assert "身份初始化" in first[0]["content"]
+    await manager.cleanup()
+
+    manager = SessionManager(config)
+    await manager.initialize()
+    second = await manager.prepare_messages_for_agent([{"role": "user", "content": "再来一次"}])
+    assert second[0]["role"] == "user"
+    await manager.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_user_inline_onboarding_confirmation_writes_db_and_md(tmp_path):
+    """Inline onboarding confirmation message should persist DB state and identity markdown."""
+    config = MemoryConfig(memory_root=str(tmp_path / "memory"))
+    manager = SessionManager(config)
+    await manager.initialize()
+    session = await manager.create_session({"channel": "test"})
+
+    await manager.save_message(
+        session.session_id,
+        "user",
+        "十一人设：你是我的长期工程伙伴。 用户身份：我是腿哥，专注 Python 后端。 称呼：腿哥。 确认：是",
+    )
+
+    state = await manager.get_global_user_state()
+    assert state["identity_confirmed"] is True
+    assert state["display_name"] == "腿哥"
+
+    shiyi_text = manager.documents.shiyi_path.read_text(encoding="utf-8")
+    user_text = manager.documents.user_path.read_text(encoding="utf-8")
+    assert "长期工程伙伴" in shiyi_text
+    assert "我是腿哥，专注 Python 后端" in user_text
+
+    await manager.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_preseeded_shiyi_md_should_not_auto_confirm_identity(tmp_path):
+    """Pre-existing ShiYi.md content must not auto-flip identity_confirmed."""
+    memory_root = tmp_path / "memory"
+    system_dir = memory_root / "system"
+    system_dir.mkdir(parents=True, exist_ok=True)
+    (system_dir / "ShiYi.md").write_text(
+        "# ShiYi\n\n## 核心身份\n\n你是一个初始化过的人设模板。\n",
+        encoding="utf-8",
+    )
+
+    config = MemoryConfig(memory_root=str(memory_root))
+    manager = SessionManager(config)
+    await manager.initialize()
+
+    state = await manager.get_global_user_state()
+    assert state["identity_confirmed"] is False
+
+    prepared = await manager.prepare_messages_for_agent([{"role": "user", "content": "你好"}])
+    assert "身份初始化" in prepared[0]["content"]
+
+    await manager.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_identity_state_file_true_should_not_auto_confirm(tmp_path):
+    """IdentityState.md must not auto-confirm DB state before onboarding."""
+    memory_root = tmp_path / "memory"
+    system_dir = memory_root / "system"
+    system_dir.mkdir(parents=True, exist_ok=True)
+    (system_dir / "IdentityState.md").write_text(
+        "# IdentityState\n\nidentity_confirmed: true\n",
+        encoding="utf-8",
+    )
+
+    config = MemoryConfig(memory_root=str(memory_root))
+    manager = SessionManager(config)
+    await manager.initialize()
+
+    state = await manager.get_global_user_state()
+    assert state["identity_confirmed"] is False
+
+    await manager.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_identity_state_file_false_should_not_force_reonboarding(tmp_path):
+    """IdentityState.md must not reset a confirmed DB state."""
+    memory_root = tmp_path / "memory"
+    sqlite_path = str(tmp_path / "sessions.db")
+    config = MemoryConfig(memory_root=str(memory_root), sqlite_path=sqlite_path)
+
+    manager = SessionManager(config)
+    await manager.initialize()
+    await manager.complete_identity_onboarding(
+        shiyi_identity="你是十一。",
+        user_identity="我是腿哥。",
+        display_name="腿哥",
+    )
+    await manager.cleanup()
+
+    store = manager.documents
+    store.write_identity_state(False, None)
+
+    manager = SessionManager(config)
+    await manager.initialize()
+    state = await manager.get_global_user_state()
+    assert state["identity_confirmed"] is True
+    await manager.cleanup()
+
+
+@pytest.mark.asyncio
 async def test_prepare_messages_for_agent_injects_memory_card_after_onboarding(tmp_path):
     """After onboarding completion, system should inject condensed memory card."""
     config = MemoryConfig(memory_root=str(tmp_path / "memory"))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from datetime import datetime, timedelta
 from typing import Optional
@@ -14,12 +15,40 @@ from memory.documents import MemoryDocumentStore
 from memory.embeddings import EmbeddingConfig, LocalEmbeddingEngine
 from memory.storage import MemoryStorage, SessionRecord
 
+# ── LLM memory extraction prompt ──────────────────────────
+_MEMORY_EXTRACTION_PROMPT = """\
+你是一个记忆提取器。从下面的对话内容中提取值得长期记住的用户信息。
+
+只提取 **明确表达** 的事实，不要推测。输出 JSON 数组，每个元素格式：
+{"scope":"user|project|insight", "fact_type":"identity|preference|habit|background|skill", "fact_key":"简短键名", "fact_value":"值", "confidence":0.0~1.0}
+
+提取规则：
+- identity: 姓名、称呼、昵称、年龄、职业、身份
+- preference: 技术偏好、工具选择、风格喜好
+- habit: 使用习惯、工作流程
+- background: 教育、公司、项目经历
+- skill: 擅长的技术/语言/框架
+- project: 当前正在做的项目进展
+- insight: 总结的经验教训
+
+confidence 评分标准：
+- 0.95: 直接自我介绍 ("我叫XX", "叫我XX")
+- 0.90: 明确偏好 ("我喜欢Python", "我用VSCode")
+- 0.80: 间接表达 ("最近在搞微服务")
+- 0.70: 轻度提及 ("试了一下Rust")
+- < 0.60: 不确定的，不要提取
+
+如果没有值得提取的内容，返回空数组 []。
+只输出 JSON，不要输出任何其他文字。"""
+
 
 class SessionManager:
     """Session manager - singleton."""
 
-    def __init__(self, memory_config):
+    def __init__(self, memory_config, llm_config=None):
         self.config = memory_config
+        self._llm_config = llm_config
+        self._llm_client = None  # lazy init
 
         self.storage = MemoryStorage(memory_config.sqlite_path)
         memory_root = getattr(memory_config, "memory_root", "data/memory")
@@ -37,12 +66,22 @@ class SessionManager:
 
         self._flush_task = None
         self._embedding_task = None
+        self._extraction_tasks: set[asyncio.Task] = set()
         self._running = False
 
     async def initialize(self):
         """Initialize."""
         await self.storage.initialize()
         await asyncio.to_thread(self.documents.ensure_initialized)
+
+        # DB is the single source of truth for identity confirmation.
+        # IdentityState.md is a mirror record only; it must never drive DB state.
+        user_state = await self.storage.get_global_user_state()
+        await asyncio.to_thread(
+            self.documents.write_identity_state,
+            user_state["identity_confirmed"],
+            user_state.get("display_name"),
+        )
 
         self._running = True
         self._flush_task = asyncio.create_task(self._auto_flush_loop())
@@ -86,6 +125,31 @@ class SessionManager:
         self.cache.put(session_id, context)
         return context
 
+    def _get_llm_client(self):
+        """Lazy-init a lightweight OpenAI client for memory extraction."""
+        if self._llm_client is not None:
+            return self._llm_client
+        if self._llm_config is None:
+            return None
+        try:
+            from openai import AsyncOpenAI
+            cfg = self._llm_config
+            api_base = getattr(cfg, "api_base", None) or cfg.get("api_base", "")
+            api_key = getattr(cfg, "api_key", None) or cfg.get("api_key", "")
+            if not api_base or not api_key:
+                return None
+            self._llm_client = AsyncOpenAI(api_key=api_key, base_url=api_base)
+            return self._llm_client
+        except Exception as e:
+            logger.warning(f"记忆提取 LLM 客户端初始化失败: {e}")
+            return None
+
+    def _get_llm_model(self) -> str:
+        """Get model name from llm config."""
+        if self._llm_config is None:
+            return ""
+        return getattr(self._llm_config, "model", None) or self._llm_config.get("model", "")
+
     async def save_message(
         self,
         session_id: str,
@@ -105,8 +169,151 @@ class SessionManager:
             content=content,
         )
 
-        if role == "user":
+        if role in ("user", "assistant"):
+            if role == "user":
+                await self._try_complete_identity_onboarding_from_message(content)
+
+            # Regex fast-path (sync, instant)
             await self.summarize_and_store(content, source_message_id=message_id)
+            # LLM deep extraction (async, fire-and-forget)
+            # Must only run after explicit identity confirmation.
+            user_state = await self.storage.get_global_user_state()
+            if user_state["identity_confirmed"]:
+                self._fire_llm_extraction(content, source_message_id=message_id)
+
+    async def _try_complete_identity_onboarding_from_message(self, content: str) -> bool:
+        """Try to complete onboarding from one structured user confirmation message."""
+        user_state = await self.storage.get_global_user_state()
+        if user_state["identity_confirmed"]:
+            return False
+
+        fields: dict[str, str] = {}
+        for key, value in re.findall(
+            r"(十一人设|用户身份|称呼|确认)\s*[:：]\s*([^\n。；;]+)",
+            content,
+            flags=re.IGNORECASE,
+        ):
+            fields[key.strip().lower()] = value.strip()
+
+        shiyi_identity = fields.get("十一人设")
+        user_identity = fields.get("用户身份")
+        confirm_value = fields.get("确认", "").lower()
+        confirmed = confirm_value in {"是", "确认", "yes", "ok", "true"}
+        if not (shiyi_identity and user_identity and confirmed):
+            return False
+
+        display_name = fields.get("称呼")
+        if not display_name:
+            name_match = re.search(r"我(?:叫|是)\s*([^\s，。！？,!.?]{1,20})", user_identity)
+            if name_match:
+                display_name = name_match.group(1)
+
+        await self.complete_identity_onboarding(
+            shiyi_identity=shiyi_identity,
+            user_identity=user_identity,
+            display_name=display_name,
+        )
+        await self.storage.save_memory_event(
+            event_type="identity_onboarding_completed_inline",
+            payload={
+                "display_name": display_name,
+                "source": "user_message",
+            },
+        )
+        return True
+
+    # ── LLM-based memory extraction (async, fire-and-forget) ──────
+
+    def _fire_llm_extraction(self, content: str, source_message_id: str | None = None):
+        """Launch LLM memory extraction as a background task."""
+        client = self._get_llm_client()
+        if client is None:
+            return
+        task = asyncio.create_task(
+            self._extract_memory_via_llm(content, source_message_id)
+        )
+        self._extraction_tasks.add(task)
+        task.add_done_callback(self._extraction_tasks.discard)
+
+    async def _extract_memory_via_llm(
+        self, content: str, source_message_id: str | None = None
+    ):
+        """Call LLM to extract structured memory facts from content."""
+        client = self._get_llm_client()
+        if client is None:
+            return
+        user_state = await self.storage.get_global_user_state()
+        if not user_state["identity_confirmed"]:
+            return
+
+        # Skip very short content
+        if len(content.strip()) < 6:
+            return
+
+        try:
+            response = await client.chat.completions.create(
+                model=self._get_llm_model(),
+                messages=[
+                    {"role": "system", "content": _MEMORY_EXTRACTION_PROMPT},
+                    {"role": "user", "content": content},
+                ],
+                temperature=0.1,
+                max_tokens=500,
+            )
+
+            raw = (response.choices[0].message.content or "").strip()
+            # Strip markdown code fences if present
+            if raw.startswith("```"):
+                raw = re.sub(r"^```(?:json)?\s*", "", raw)
+                raw = re.sub(r"\s*```$", "", raw)
+
+            candidates = json.loads(raw)
+            if not isinstance(candidates, list):
+                return
+
+            applied = 0
+            pending = 0
+            for item in candidates:
+                confidence = float(item.get("confidence", 0))
+                fact = {
+                    "scope": item.get("scope", "user"),
+                    "fact_type": item.get("fact_type", "preference"),
+                    "fact_key": item.get("fact_key", ""),
+                    "fact_value": item.get("fact_value", ""),
+                }
+                if not fact["fact_key"] or not fact["fact_value"]:
+                    continue
+
+                if confidence >= 0.85:
+                    await self._apply_memory_fact(
+                        fact=fact,
+                        confidence=confidence,
+                        source_message_id=source_message_id,
+                    )
+                    applied += 1
+                elif confidence >= 0.60:
+                    await self.save_memory_pending(
+                        candidate_fact=fact,
+                        confidence=confidence,
+                        source_message_id=source_message_id,
+                    )
+                    pending += 1
+
+            if applied or pending:
+                logger.info(f"LLM 记忆提取: {applied} 条直接写入, {pending} 条待确认")
+                await self.storage.save_memory_event(
+                    event_type="llm_extraction_completed",
+                    payload={
+                        "source_message_id": source_message_id,
+                        "applied": applied,
+                        "pending": pending,
+                    },
+                )
+
+        except json.JSONDecodeError:
+            logger.debug(f"LLM 记忆提取返回非 JSON: {raw[:100]}")
+        except Exception as e:
+            logger.warning(f"LLM 记忆提取失败: {e}")
 
     async def list_sessions(self, limit: int = 50) -> list[SessionRecord]:
         """List all sessions."""
@@ -132,6 +339,12 @@ class SessionManager:
         await self.storage.set_global_user_identity_state(
             identity_confirmed=True,
             display_name=display_name,
+            onboarding_prompted=True,
+        )
+        await asyncio.to_thread(
+            self.documents.write_identity_state,
+            True,
+            display_name,
         )
         await self.storage.save_memory_event(
             event_type="identity_onboarding_completed",
@@ -195,9 +408,14 @@ class SessionManager:
         )
 
     def _extract_memory_candidates(self, content: str) -> list[dict]:
-        """Extract candidate facts with confidence scores."""
+        """Extract candidate facts with confidence scores.
+
+        Handles both user messages ("我叫XX") and assistant confirmations
+        ("好的，已记住你叫XX", "记住了，你是XX").
+        """
         candidates: list[dict] = []
 
+        # ── User self-introduction ──
         name_match = re.search(r"我叫\s*([^\s，。！？,!.?]{1,20})", content)
         if name_match:
             candidates.append(
@@ -212,6 +430,63 @@ class SessionManager:
                 }
             )
 
+        # ── User identity variants ("你可以叫我X", "叫我X就行") ──
+        alias_match = re.search(
+            r"(?:你可以)?叫我\s*([^\s，。！？,!.?]{1,20})",
+            content,
+        )
+        if alias_match and not name_match:
+            candidates.append(
+                {
+                    "confidence": 0.90,
+                    "fact": {
+                        "scope": "user",
+                        "fact_type": "identity",
+                        "fact_key": "display_name",
+                        "fact_value": alias_match.group(1),
+                    },
+                }
+            )
+
+        # ── Assistant confirmation of user name ──
+        confirm_name = re.search(
+            r"(?:记住了|好的|了解|收到)[，,]?\s*(?:你(?:叫|是)|称呼.*?为?)\s*([^\s，。！？,!.?]{1,20})",
+            content,
+        )
+        if confirm_name:
+            candidates.append(
+                {
+                    "confidence": 0.88,
+                    "fact": {
+                        "scope": "user",
+                        "fact_type": "identity",
+                        "fact_key": "display_name",
+                        "fact_value": confirm_name.group(1),
+                    },
+                }
+            )
+
+        # ── User profession/role ("我是程序员", "我做后端的") ──
+        role_match = re.search(
+            r"我(?:是|做)\s*([^\s，。！？,!.?]{2,20}?)(?:的|$)",
+            content,
+        )
+        if role_match:
+            val = role_match.group(1).strip()
+            if len(val) >= 2 and val not in ("什么", "不是", "这个", "那个"):
+                candidates.append(
+                    {
+                        "confidence": 0.75,
+                        "fact": {
+                            "scope": "user",
+                            "fact_type": "identity",
+                            "fact_key": "profession",
+                            "fact_value": val,
+                        },
+                    }
+                )
+
+        # ── Tech preference (explicit) ──
         pref_match = re.search(
             r"我(?:更)?(?:喜欢|偏好|偏爱)\s*([A-Za-z][A-Za-z0-9+._-]{1,30})",
             content,
@@ -229,6 +504,7 @@ class SessionManager:
                 }
             )
 
+        # ── Tech preference (medium confidence) ──
         medium_pref_match = re.search(
             r"我最近在用\s*([A-Za-z][A-Za-z0-9+._-]{1,30})",
             content,
@@ -242,6 +518,24 @@ class SessionManager:
                         "fact_type": "preference",
                         "fact_key": "preferred_tech",
                         "fact_value": medium_pref_match.group(1),
+                    },
+                }
+            )
+
+        # ── General preference ("我习惯X", "我常用X") ──
+        habit_match = re.search(
+            r"我(?:习惯|常用|一直用)\s*([^\s，。！？,!.?]{2,30})",
+            content,
+        )
+        if habit_match:
+            candidates.append(
+                {
+                    "confidence": 0.70,
+                    "fact": {
+                        "scope": "user",
+                        "fact_type": "preference",
+                        "fact_key": "habit",
+                        "fact_value": habit_match.group(1),
                     },
                 }
             )
@@ -530,11 +824,20 @@ class SessionManager:
         """Prepend onboarding guidance or memory card before model inference."""
         user_state = await self.storage.get_global_user_state()
         if not user_state["identity_confirmed"]:
+            if user_state.get("onboarding_prompted"):
+                return messages
+
+            await self.storage.mark_onboarding_prompted()
             onboarding_prompt = (
                 "系统状态：用户尚未完成身份初始化。\n"
                 "请先引导用户确认两件事：\n"
                 "1) 十一的人设定位与行为边界；\n"
                 "2) 用户身份（称呼、背景、偏好）。\n"
+                "请用户尽量按以下格式一次回复：\n"
+                "十一人设：...\n"
+                "用户身份：...\n"
+                "称呼：...\n"
+                "确认：是\n"
                 "在用户明确确认前，不要假设长期身份信息。"
             )
             return [{"role": "system", "content": onboarding_prompt}, *messages]
@@ -648,10 +951,17 @@ class SessionManager:
 
         if scope == "user":
             if fact_key == "display_name":
+                user_state = await self.storage.get_global_user_state()
                 await self.storage.set_global_user_identity_state(
-                    identity_confirmed=True,
+                    identity_confirmed=user_state["identity_confirmed"],
                     display_name=fact_value,
                 )
+                if user_state["identity_confirmed"]:
+                    await asyncio.to_thread(
+                        self.documents.write_identity_state,
+                        True,
+                        fact_value,
+                    )
             await asyncio.to_thread(self.documents.upsert_user_fact, fact_key, fact_value)
         elif scope == "project":
             await asyncio.to_thread(self.documents.append_project_update, fact_value)
@@ -683,9 +993,14 @@ class SessionManager:
             self._flush_task.cancel()
         if self._embedding_task:
             self._embedding_task.cancel()
+        # Wait for background extraction tasks to finish
+        if self._extraction_tasks:
+            await asyncio.gather(*self._extraction_tasks, return_exceptions=True)
         await asyncio.gather(
             *(task for task in [self._flush_task, self._embedding_task] if task),
             return_exceptions=True,
         )
+        if self._llm_client:
+            await self._llm_client.close()
         await self.storage.cleanup()
         self.cache.clear()

@@ -21,7 +21,7 @@ class Orchestrator:
         self.debug_mode = debug_mode
 
         # Initialize core components
-        self.session_manager = SessionManager(config.memory)
+        self.session_manager = SessionManager(config.memory, llm_config=config.llm)
         self.agent_core = AgentCore(config)
 
         # Initialize channels based on config

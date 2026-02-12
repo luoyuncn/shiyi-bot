@@ -65,6 +65,7 @@ class UserRecord(Base):
 
     user_id = Column(String(64), primary_key=True)
     identity_confirmed = Column(Boolean, nullable=False, default=False)
+    onboarding_prompted = Column(Boolean, nullable=False, default=False)
     display_name = Column(String(100), nullable=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
@@ -194,6 +195,22 @@ class MemoryStorage:
                 )
             )
 
+        user_columns_result = await conn.execute(text("PRAGMA table_info(users)"))
+        user_columns = [row[1] for row in user_columns_result]
+        if user_columns and "onboarding_prompted" not in user_columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE users "
+                    "ADD COLUMN onboarding_prompted BOOLEAN DEFAULT 0"
+                )
+            )
+            await conn.execute(
+                text(
+                    "UPDATE users SET onboarding_prompted = 0 "
+                    "WHERE onboarding_prompted IS NULL"
+                )
+            )
+
     async def _ensure_message_fts(self, conn):
         """Create and backfill FTS5 index for message keyword retrieval."""
         await conn.execute(
@@ -228,6 +245,7 @@ class MemoryStorage:
                 UserRecord(
                     user_id=GLOBAL_USER_ID,
                     identity_confirmed=False,
+                    onboarding_prompted=False,
                     display_name=None,
                     created_at=now,
                     updated_at=now,
@@ -411,6 +429,7 @@ class MemoryStorage:
             return {
                 "user_id": record.user_id,
                 "identity_confirmed": record.identity_confirmed,
+                "onboarding_prompted": bool(record.onboarding_prompted),
                 "display_name": record.display_name,
             }
 
@@ -418,6 +437,7 @@ class MemoryStorage:
         self,
         identity_confirmed: bool,
         display_name: Optional[str] = None,
+        onboarding_prompted: Optional[bool] = None,
     ):
         """Update global user identity confirmation metadata."""
         values = {
@@ -426,12 +446,27 @@ class MemoryStorage:
         }
         if display_name is not None:
             values["display_name"] = display_name
+        if onboarding_prompted is not None:
+            values["onboarding_prompted"] = onboarding_prompted
 
         async with self.session_factory() as session:
             await session.execute(
                 update(UserRecord)
                 .where(UserRecord.user_id == GLOBAL_USER_ID)
                 .values(**values)
+            )
+            await session.commit()
+
+    async def mark_onboarding_prompted(self):
+        """Mark first-run onboarding prompt as already shown."""
+        async with self.session_factory() as session:
+            await session.execute(
+                update(UserRecord)
+                .where(UserRecord.user_id == GLOBAL_USER_ID)
+                .values(
+                    onboarding_prompted=True,
+                    updated_at=datetime.now(),
+                )
             )
             await session.commit()
 

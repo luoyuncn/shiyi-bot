@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from pathlib import Path
 
 
@@ -15,6 +16,7 @@ class MemoryDocumentStore:
         self.shared_dir = self.root / "shared"
 
         self.shiyi_path = self.system_dir / "ShiYi.md"
+        self.identity_state_path = self.system_dir / "IdentityState.md"
         self.user_path = self.shared_dir / "User.md"
         self.project_path = self.shared_dir / "Project.md"
         self.insights_path = self.shared_dir / "Insights.md"
@@ -25,9 +27,37 @@ class MemoryDocumentStore:
         self.shared_dir.mkdir(parents=True, exist_ok=True)
 
         self._ensure_file(self.shiyi_path, self._default_shiyi())
+        self._ensure_file(self.identity_state_path, self._default_identity_state())
         self._ensure_file(self.user_path, self._default_user())
         self._ensure_file(self.project_path, self._default_project())
         self._ensure_file(self.insights_path, self._default_insights())
+
+    def read_identity_state(self) -> dict:
+        """Read explicit identity confirmation state from dedicated markdown file."""
+        self.ensure_initialized()
+        text = self.identity_state_path.read_text(encoding="utf-8")
+        matched = re.search(r"identity_confirmed:\s*(true|false)", text, flags=re.IGNORECASE)
+        display_name_match = re.search(r"display_name:\s*(.*)", text)
+        confirmed = None
+        if matched:
+            confirmed = matched.group(1).lower() == "true"
+        display_name = display_name_match.group(1).strip() if display_name_match else ""
+        return {
+            "identity_confirmed": confirmed,
+            "display_name": display_name or None,
+        }
+
+    def write_identity_state(self, identity_confirmed: bool, display_name: str | None = None):
+        """Persist explicit identity confirmation marker."""
+        self.ensure_initialized()
+        display = (display_name or "").strip()
+        content = (
+            "# IdentityState\n\n"
+            f"identity_confirmed: {'true' if identity_confirmed else 'false'}\n"
+            f"display_name: {display}\n"
+            f"updated_at: {datetime.now().isoformat(timespec='seconds')}\n"
+        )
+        self._atomic_write(self.identity_state_path, content)
 
     def write_initial_identity(self, shiyi_identity: str, user_identity: str):
         """Persist first-run identity definitions for assistant and user."""
@@ -140,6 +170,15 @@ class MemoryDocumentStore:
             "# ShiYi\n\n"
             "## 核心身份\n\n"
             "- 待初始化\n"
+        )
+
+    @staticmethod
+    def _default_identity_state() -> str:
+        return (
+            "# IdentityState\n\n"
+            "identity_confirmed: \n"
+            "display_name: \n"
+            "updated_at: \n"
         )
 
     @staticmethod
