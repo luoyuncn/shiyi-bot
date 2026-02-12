@@ -89,6 +89,7 @@ tools:
     - file_operations
     - execute_shell
     - search_web
+    - super_search
   mcp:
     enabled: false
     servers: []

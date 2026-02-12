@@ -25,6 +25,8 @@ dependencies = [
     "aiofiles>=23.2.0",
     "ddgs>=9.10.0",
     "httpx>=0.28.1",
+    # 搜索
+    "tavily-python>=0.5.0",
     # TUI
     "textual>=0.80.0",
 ]

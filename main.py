@@ -156,12 +156,12 @@ async def main(args: argparse.Namespace):
             # 启动非 CLI 通道（如语音通道）作为后台任务
             bg_task = None
             if orchestrator.channels:
-                bg_task = asyncio.create_task(
-                    asyncio.gather(
+                async def _run_channels():
+                    await asyncio.gather(
                         *[ch.start() for ch in orchestrator.channels],
                         return_exceptions=True,
                     )
-                )
+                bg_task = asyncio.create_task(_run_channels())
 
             from channels.tui.app import ShiYiApp
 

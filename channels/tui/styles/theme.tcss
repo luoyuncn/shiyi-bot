@@ -1,184 +1,217 @@
-/* ShiYi TUI Theme — Gemini Style */
+/* ShiYi TUI — Night Owl Refined
+ * 配色基于 Tokyo Night 色系，针对低光终端环境优化
+ * 兼容 xterm-256color / Windows Terminal / iTerm2 / GNOME Terminal
+ * 适配终端尺寸: 80×24 ~ 256×60 */
 
 Screen {
-    background: #131314;  /* Gemini Dark Background */
-    color: #E3E3E3;
-}
-
-/* ── Header ─────────────────────────────────── */
-HeaderBar {
-    height: 3;
-    background: #131314;
-    color: #E3E3E3;
-    padding: 1 2;
-    dock: top;
+    background: #1a1b26;
+    color: #c0caf5;
+    align-horizontal: center;
 }
 
 /* ── Chat Area ──────────────────────────────── */
 ChatView {
     height: 1fr;
-    padding: 1 4;  /* More padding for readability */
-    background: #131314;
-    scrollbar-size: 1 1;
+    width: 80%;
+    max-width: 120;
+    background: transparent;
+    scrollbar-size: 0 0;
+    padding: 1 0 0 0;
 }
 
-/* Message Container (Full Width) */
+/* ── Welcome View ───────────────────────────── */
+WelcomeView {
+    width: 100%;
+    height: auto;
+    margin: 1 0 0 0;
+}
+
+/* ── User Message (右对齐气泡) ───────────────── */
 UserMessage {
     width: 100%;
     height: auto;
     align-horizontal: right;
-    padding: 1 2;
-    margin-top: 1;
+    margin: 1 0 0 0;
 }
 
+.user-bubble {
+    background: #28304a;
+    color: #dcdfe4;
+    padding: 0 2;
+    max-width: 70%;
+}
+
+/* ── Assistant Message (左对齐 Markdown) ─────── */
 AssistantMessage {
     width: 100%;
     height: auto;
     align-horizontal: left;
-    padding: 1 2;
-    margin-top: 1;
+    margin: 1 0 0 0;
 }
 
-/* Inner Bubble Styling */
-UserMessage > .bubble {
-    background: #2B2D31; /* Lighter dark gray for visibility */
-    color: #E3E3E3;
-    padding: 1 2;
-    height: auto;
-    width: auto;
-    min-width: 20;  /* Prevent crushing */
-    max-width: 80%;
-    border-left: solid #A8C7FA; /* Blue accent line instead of radius */
+.ai-content {
+    background: transparent;
+    color: #c0caf5;
+    padding: 0 1;
+    width: 1fr;
 }
 
-AssistantMessage > .bubble {
-    background: #1e1e1e; /* Standard dark gray */
-    color: #E3E3E3;
-    padding: 1 2;
-    height: auto;
-    width: auto;
-    min-width: 20;
-    max-width: 90%;
-}
-
-/* Labels */
-.message-label {
-    text-style: bold;
-    margin-bottom: 1;
-    width: 100%;
-}
-
-UserMessage .message-label {
-    color: #A8C7FA;
-    text-align: right;
-}
-
-AssistantMessage .message-label {
-    color: #E8EAED;
-    text-align: left;
-}
-
-/* Markdown Content */
+/* ── Markdown ───────────────────────────────── */
 Markdown {
     background: transparent;
-    color: #E3E3E3;
-    height: auto;
-    width: 100%;
+    color: #c0caf5;
+    padding: 0;
+    margin: 0;
 }
 
-/* System notice */
-SystemNotice {
-    margin: 1 0;
-    padding: 0 1;
-    color: #9AA0A6;
-    text-style: italic;
-    text-align: center;
+MarkdownH1, MarkdownH2, MarkdownH3 {
+    background: transparent;
+    color: #7aa2f7;
+    text-style: bold;
+    margin: 1 0 0 0;
+    border: none;
 }
 
-/* Error notice */
-ErrorNotice {
-    margin: 1 0;
-    padding: 1 2;
-    background: #3c1e1e;
-    color: #ffb4ab;
-    border-left: solid #ffb4ab;
-}
-
-/* ── Tool Call Block ────────────────────────── */
-ToolCallBlock {
-    margin: 1 0 1 2;
+MarkdownCodeBlock {
+    background: #13141c;
+    border-left: solid #ff9e64;
     padding: 1;
-    background: #1E1F20;
-    border-left: solid #A8C7FA;
+    margin: 1 0;
+    color: #c0caf5;
+}
+
+MarkdownInlineCode {
+    background: #1f2233;
+    color: #ff9e64;
+    text-style: none;
+}
+
+/* ── Thinking Indicator (animated spinner) ──── */
+ThinkingIndicator {
+    width: 100%;
+    height: 1;
+    padding: 0 1;
+    color: #565f89;
+    margin: 1 0 0 0;
+}
+
+/* ── Notices ─────────────────────────────────── */
+SystemNotice {
+    width: 100%;
+    text-align: left;
+    color: #565f89;
+    padding: 0 1;
+    text-style: italic;
+}
+
+ErrorNotice {
+    width: 100%;
+    text-align: left;
+    color: #f7768e;
+    background: transparent;
+    padding: 0 1;
+    margin: 1 0;
+    border-left: solid #f7768e;
+}
+
+/* ── Tool Call ───────────────────────────────── */
+ToolCallBlock {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 0 0 1;
+    background: transparent;
+    border: none;
     height: auto;
 }
 
 ToolCallBlock > CollapsibleTitle {
-    color: #A8C7FA;
-    background: #1E1F20;
+    color: #565f89;
+    background: transparent;
+    padding: 0;
+}
+
+ToolCallBlock > CollapsibleTitle:hover {
+    color: #ff9e64;
 }
 
 ToolCallBlock > Contents {
-    padding: 0 1;
-    color: #C4C7C5;
+    padding-left: 2;
+    border-left: solid #2e3c56;
+    color: #565f89;
 }
 
-/* ── Status Bar ─────────────────────────────── */
-StatusBar {
-    height: 1;
-    background: #1E1F20;
-    color: #9AA0A6;
-    padding: 0 2;
+.tool-result {
+    color: #9ece6a;
+}
+
+/* ── Input Dock (centering wrapper) ─────────── */
+#input-dock {
     dock: bottom;
-}
-
-/* ── Log Panel ──────────────────────────────── */
-LogPanel {
-    height: 10;
-    border-top: solid #444746;
-    background: #0b0b0b;
-    padding: 0 1;
-    dock: bottom;
-}
-
-LogPanel > .log-title {
-    height: 1;
-    background: #1E1F20;
-    color: #9AA0A6;
-    padding: 0 1;
-}
-
-LogPanel > RichLog {
-    background: #0b0b0b;
-    color: #c0c0c0;
-}
-
-/* ── Input Area ─────────────────────────────── */
-Input {
-    dock: bottom;
-    margin: 1 4;
-    padding: 1 2;
+    width: 100%;
     height: auto;
-    min-height: 3;
-    background: #1E1F20;
+    align-horizontal: center;
+    margin: 0 0 1 0;
+}
+
+/* ── Input Area (悬浮岛) ────────────────────── */
+#input-area {
+    height: auto;
+    min-height: 1;
+    width: 80%;
+    max-width: 120;
+    padding: 0 1;
+    background: #1f2335;
+    border-top: solid #2e3c56;
+}
+
+/* Processing state — border accent turns orange */
+#input-area.processing {
+    border-top: solid #ff9e64;
+}
+
+.prompt-symbol {
+    color: #ff9e64;
+    width: 2;
+    height: 1;
+    padding: 0;
+    text-style: bold;
+}
+
+#message-input {
+    background: transparent;
     border: none;
-    color: #E3E3E3;
+    color: #c0caf5;
+    width: 1fr;
+    height: auto;
+    min-height: 1;
+    padding: 0;
 }
 
-Input:focus {
-    background: #28292A;
+#message-input:focus {
     border: none;
-    color: #FFFFFF;
 }
 
-Input > .input--placeholder {
-    color: #5E5E5E;
+#message-input > .input--placeholder {
+    color: #3b4261;
 }
 
-/* ── Scrollbar ──────────────────────────────── */
-Screen {
-    scrollbar-background: #131314;
-    scrollbar-color: #444746;
-    scrollbar-color-hover: #5E5E5E;
-    scrollbar-color-active: #A8C7FA;
+/* ── Scrollbar (隐藏) ────────────────────────── */
+ScrollBar {
+    background: transparent;
+    color: transparent;
+}
+
+/* ── Log Panel (debug) ───────────────────────── */
+LogPanel {
+    height: 12;
+    dock: bottom;
+    border-top: solid #2e3c56;
+    background: #1a1b26;
+}
+
+.log-title {
+    background: #1f2335;
+    color: #565f89;
+    padding: 0 1;
+    text-style: bold;
 }

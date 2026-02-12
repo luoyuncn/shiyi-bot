@@ -1,23 +1,26 @@
-"""ShiYi TUI Application — main Textual app"""
+"""ShiYi TUI Application — main Textual app (Night Owl theme)"""
 import time
 
 from loguru import logger
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Input
+from textual.containers import Horizontal, Container
+from textual.widgets import Input, Static
 from .widgets import (
-    HeaderBar,
     ChatView,
-    StatusBar,
     LogPanel,
 )
 
 # Loguru sink ID, used to remove the sink on cleanup
 _log_sink_id: int | None = None
 
+# Braille spinner frames for prompt animation
+_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
 
 class ShiYiApp(App):
-    """ShiYi TUI — terminal user interface for the AI assistant."""
+    """ShiYi TUI — Night Owl themed terminal interface."""
 
     CSS_PATH = "styles/theme.tcss"
 
@@ -45,21 +48,23 @@ class ShiYiApp(App):
         self._interrupt_requested = False
         self._input_history: list[str] = []
         self._history_index: int = -1
+        self._prompt_timer = None
+        self._prompt_frame: int = 0
 
     # ── Layout ──────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
-        yield HeaderBar(id="header")
         yield ChatView(id="chat-view")
-        # yield StatusBar(id="status-bar") # Remove status bar for cleaner look, info is in header
         if self.debug_mode:
             yield LogPanel(id="log-panel")
-
-        # Input container for better styling
-        yield Input(
-            placeholder="输入您的问题... (Enter 发送)",
-            id="message-input",
-        )
+        # Centering wrapper — full-width dock, centers the 80% input-area
+        with Container(id="input-dock"):
+            with Horizontal(id="input-area"):
+                yield Static("\u276f", classes="prompt-symbol")
+                yield Input(
+                    placeholder="Type a message or command...",
+                    id="message-input",
+                )
 
     # ── Lifecycle ───────────────────────────────────────────
 
@@ -69,20 +74,13 @@ class ShiYiApp(App):
             {"channel": "tui"}
         )
 
-        # Update header
-        header = self.query_one("#header", HeaderBar)
-        header.model_name = self.config.llm.model
-        header.session_id = self.current_session.session_id
-
         # Setup loguru sink for debug panel
         if self.debug_mode:
             self._setup_log_sink()
 
-        # Welcome message
+        # Welcome screen
         chat = self.query_one("#chat-view", ChatView)
-        await chat.add_system_notice(
-            "欢迎使用 ShiYi ✦  会话已创建  |  输入 /help 查看命令"
-        )
+        await chat.add_welcome(model_name=self.config.llm.model)
 
         # Focus input
         self.query_one("#message-input", Input).focus()
@@ -92,11 +90,9 @@ class ShiYiApp(App):
         log_panel = self.query_one("#log-panel", LogPanel)
 
         def _sink(message):
-            # message is the pre-formatted string from loguru
             try:
                 self.call_from_thread(log_panel.write_log, str(message))
             except Exception:
-                # App might be shutting down
                 pass
 
         _log_sink_id = logger.add(
@@ -128,6 +124,61 @@ class ShiYiApp(App):
                 return
             self._send_message(text)
 
+    def on_key(self, event: events.Key) -> None:
+        """Up/Down arrow keys navigate input history."""
+        inp = self.query_one("#message-input", Input)
+        if not inp.has_focus:
+            return
+
+        if event.key == "up" and self._input_history:
+            if self._history_index == -1:
+                self._history_index = len(self._input_history) - 1
+            elif self._history_index > 0:
+                self._history_index -= 1
+            else:
+                return
+            inp.value = self._input_history[self._history_index]
+            inp.cursor_position = len(inp.value)
+            event.stop()
+
+        elif event.key == "down" and self._history_index >= 0:
+            if self._history_index < len(self._input_history) - 1:
+                self._history_index += 1
+                inp.value = self._input_history[self._history_index]
+            else:
+                self._history_index = -1
+                inp.value = ""
+            inp.cursor_position = len(inp.value)
+            event.stop()
+
+    # ── Processing State & Animation ────────────────────────
+
+    def _set_processing(self, active: bool) -> None:
+        """Toggle processing visual state — animated spinner on prompt."""
+        self._processing = active
+        input_area = self.query_one("#input-area")
+        prompt = self.query_one(".prompt-symbol", Static)
+
+        if active:
+            input_area.add_class("processing")
+            self._prompt_frame = 0
+            self._prompt_timer = self.set_interval(1 / 10, self._tick_prompt)
+        else:
+            input_area.remove_class("processing")
+            if self._prompt_timer:
+                self._prompt_timer.stop()
+                self._prompt_timer = None
+            prompt.update("\u276f")  # restore ❯
+
+    def _tick_prompt(self) -> None:
+        """Animate prompt symbol with braille spinner."""
+        try:
+            prompt = self.query_one(".prompt-symbol", Static)
+            prompt.update(_SPINNER[self._prompt_frame])
+            self._prompt_frame = (self._prompt_frame + 1) % len(_SPINNER)
+        except Exception:
+            pass
+
     # ── Message Processing (worker) ─────────────────────────
 
     def _send_message(self, text: str) -> None:
@@ -139,7 +190,7 @@ class ShiYiApp(App):
         )
 
     async def _process_message(self, text: str) -> None:
-        self._processing = True
+        self._set_processing(True)
         self._interrupt_requested = False
         chat = self.query_one("#chat-view", ChatView)
 
@@ -151,7 +202,7 @@ class ShiYiApp(App):
             await chat.add_user_message(text)
 
             # Add thinking indicator
-            await chat.add_system_notice("Thinking... ⏳")
+            await chat.add_thinking()
             thinking_removed = False
 
             # Get conversation context
@@ -167,21 +218,19 @@ class ShiYiApp(App):
             # Stream response
             full_response_text = ""
             current_bubble_text = ""
-            # The placeholder is the "current" assistant message initially
-            current_assistant_msg = chat._last_assistant_msg
-            thinking_cleared = False
+            current_assistant_msg = None
 
             async for event in self.agent_core.process_message_stream(messages):
                 if self._interrupt_requested:
                     if not thinking_removed:
-                        chat.remove_last_message()
+                        chat.remove_thinking()
                         thinking_removed = True
                     await chat.add_system_notice("已中断回复")
                     break
 
                 # Remove thinking indicator on first event
                 if not thinking_removed:
-                    chat.remove_last_message()
+                    chat.remove_thinking()
                     thinking_removed = True
 
                 etype = event["type"]
@@ -192,13 +241,13 @@ class ShiYiApp(App):
                     current_bubble_text += delta
 
                     if current_assistant_msg is None:
-                        current_assistant_msg = await chat.add_assistant_message(current_bubble_text)
+                        current_assistant_msg = await chat.add_assistant_message(
+                            current_bubble_text
+                        )
                         if first_event:
-                            # Latency tracking removed for now
-                            # latency = int((time.monotonic() - t0) * 1000)
                             first_event = False
                     else:
-                        chat.update_assistant_message(current_bubble_text)
+                        await chat.update_assistant_message(current_bubble_text)
 
                 elif etype == "tool_call":
                     # Start new text bubble after tool call
@@ -217,7 +266,6 @@ class ShiYiApp(App):
                     await chat.add_error(event["error"])
 
                 elif etype == "usage":
-                    # Usage info is now handled in header or logs if needed
                     pass
 
                 elif etype == "done":
@@ -229,33 +277,26 @@ class ShiYiApp(App):
                     self.current_session.session_id, "assistant", full_response_text
                 )
 
-            # status.message_count += 1  # Removed status bar
-
         except Exception as e:
             if not thinking_removed:
-                chat.remove_last_message()
+                chat.remove_thinking()
             await chat.add_error(f"处理失败: {e}")
             logger.error(f"TUI消息处理失败: {e}")
 
         finally:
-            self._processing = False
+            self._set_processing(False)
 
     # ── Slash Commands ──────────────────────────────────────
 
     async def _handle_command(self, cmd: str) -> None:
         chat = self.query_one("#chat-view", ChatView)
-        header = self.query_one("#header", HeaderBar)
 
         if cmd == "/new":
             self.current_session = await self.session_manager.create_session(
                 {"channel": "tui"}
             )
-            header.session_id = self.current_session.session_id
-            # status.reset_usage()
             await chat.clear_messages()
-            await chat.add_system_notice(
-                f"新会话已创建: {self.current_session.session_id[:8]}"
-            )
+            await chat.add_welcome(model_name=self.config.llm.model)
 
         elif cmd == "/list":
             sessions = await self.session_manager.list_sessions()
@@ -264,13 +305,14 @@ class ShiYiApp(App):
                 return
             lines = ["会话列表:"]
             for s in sessions:
-                marker = " ◀" if s.session_id == self.current_session.session_id else ""
-                lines.append(f"  {s.session_id[:8]}  (最后活跃: {s.last_active}){marker}")
+                marker = " <" if s.session_id == self.current_session.session_id else ""
+                lines.append(
+                    f"  {s.session_id[:8]}  (最后活跃: {s.last_active}){marker}"
+                )
             await chat.add_system_notice("\n".join(lines))
 
         elif cmd.startswith("/switch "):
             session_id = cmd.split(maxsplit=1)[1].strip()
-            # Try to find session matching prefix
             sessions = await self.session_manager.list_sessions()
             match = None
             for s in sessions:
@@ -283,8 +325,6 @@ class ShiYiApp(App):
 
             self.current_session = await self.session_manager.get_session(match)
             if self.current_session:
-                header.session_id = self.current_session.session_id
-                # status.reset_usage()
                 await chat.clear_messages()
                 # Replay existing messages
                 for msg in self.current_session.messages:
@@ -300,6 +340,7 @@ class ShiYiApp(App):
 
         elif cmd == "/clear":
             await chat.clear_messages()
+            await chat.add_welcome(model_name=self.config.llm.model)
 
         elif cmd == "/help":
             await chat.add_system_notice(
@@ -335,6 +376,8 @@ class ShiYiApp(App):
 
     async def on_unmount(self) -> None:
         global _log_sink_id
+        if self._prompt_timer:
+            self._prompt_timer.stop()
         if _log_sink_id is not None:
             try:
                 logger.remove(_log_sink_id)
