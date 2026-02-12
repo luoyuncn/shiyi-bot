@@ -51,6 +51,9 @@ models/*.pth
 *.mp3
 test_audio/
 
+# Data (local database)
+data/*.db
+
 # Fonts (downloaded locally, not committed)
 fonts/*.zip
 fonts/*/
