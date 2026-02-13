@@ -52,6 +52,7 @@ class MCPTool(BaseTool):
                 result = response.json()
 
                 # MCP standard response: {"content": [{"type": "text", "text": "..."}]}
+                # MCP 标准响应格式示例：{"content": [{"type": "text", "text": "..."}]}
                 content = result.get("content", [])
                 if content:
                     return "\n".join(

@@ -88,6 +88,7 @@ class BaseAgent(ABC):
             ] if self.available_tools else all_tools
 
             # Warn about configured tools that don't exist
+            # 对配置了但未注册的工具给出告警
             if self.available_tools:
                 registered_names = {t["function"]["name"] for t in all_tools}
                 for tool_name in self.available_tools:

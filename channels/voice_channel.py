@@ -14,11 +14,13 @@ class VoiceChannel(BaseChannel):
         """Start voice channel"""
         try:
             # Import here to avoid circular dependency
+            # 在此处导入以避免循环依赖
             from core.assistant import AssistantCore
 
             logger.info("🎤 语音通道启动中...")
 
             # Create and start voice assistant
+            # 创建并启动语音助手
             self.assistant_core = AssistantCore(self.config)
             await self.assistant_core.start()
 

@@ -71,7 +71,9 @@ class AudioRecorder:
             if len(parts) != 2:
                 continue
             left = parts[0].strip()  # e.g. "3 [seeed2micvoicec]"
+            # 例如："3 [seeed2micvoicec]"
             card_idx = left.split()[0]  # numeric index
+            # 声卡数字索引
             if "[" in left and "]" in left:
                 name = left.split("[", 1)[1].split("]", 1)[0].strip()
             else:

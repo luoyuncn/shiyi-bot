@@ -76,38 +76,47 @@ class ThinkingIndicator(Widget):
             self._timer.stop()
 
 
-# ── SHIYI text logo (cyberpunk double-line mechanical) ───
-def _make_logo():
-    """Build the SHIYI text logo — double-line box-drawing, heavy industrial.
+# ── Cyberpunk pixel-art icon for ShiYi (一一) ───
+def _make_pixel_icon():
+    """Build a pixel-art icon representing "一一" (Yi-Yi).
 
-    Uses ╔╗╚╝║═╠╣╦╩ for thick strokes and a schematic/blueprint aesthetic.
-    Each letter is 5 chars wide with 2-char gaps. All lines = 33 chars.
+    Two parallel vertical bars symbolizing "一一" - simple, clean, cyberpunk.
+    Left bar in orange, right bar in cyan - representing warmth + tech.
     """
-    # Double-line box-drawing alphabet
-    H, V = "\u2550", "\u2551"          # ═ ║
-    TL, TR = "\u2554", "\u2557"        # ╔ ╗
-    BL, BR = "\u255a", "\u255d"        # ╚ ╝
-    LT, RT = "\u2560", "\u2563"        # ╠ ╣
-    TT, BT = "\u2566", "\u2569"        # ╦ ╩
+    # Block characters for pixel effect
+    B = "\u2588"  # █ full block
 
-    # Per-letter shapes (5 chars wide × 3 rows)
-    s1, s2, s3 = f"{TL}{H*3}{TR}", f"{BL}{H*3}{TR}", f"{BL}{H*3}{BR}"
-    h1, h2, h3 = f"{V}   {V}", f"{LT}{H*3}{RT}", f"{V}   {V}"
-    i1, i2, i3 = f"{H*2}{TT}{H*2}", f"  {V}  ", f"{H*2}{BT}{H*2}"
-    y1, y2, y3 = f"{V}   {V}", f"{BL}{H}{TT}{H}{BR}", f"  {V}  "
+    # 5x5 pixel "一一" icon - two vertical bars
+    # Each bar is 2px wide with 1px gap, with 2-space indent for alignment
+    indent = "  "
+    lines = [
+        f"{indent}{B}{B} {B}{B}",   #   ██ ██
+        f"{indent}{B}{B} {B}{B}",   #   ██ ██
+        f"{indent}{B}{B} {B}{B}",   #   ██ ██
+        f"{indent}{B}{B} {B}{B}",   #   ██ ██
+        f"{indent}{B}{B} {B}{B}",   #   ██ ██
+    ]
 
-    g = "  "  # gap between letters
     t = Text()
-    t.append(f"{s1}{g}{h1}{g}{i1}{g}{y1}{g}{i1}\n", style="bold #FFA500")
-    t.append(f"{s2}{g}{h2}{g}{i2}{g}{y2}{g}{i2}\n", style="bold #FFA500")
-    t.append(f"{s3}{g}{h3}{g}{i3}{g}{y3}{g}{i3}", style="bold #FFD700")
+    for i, line in enumerate(lines):
+        # Indent (unstyled)
+        t.append(indent, style="")
+        # Left bar: orange (warmth/family)
+        t.append(B + B, style="bold #FFA500")
+        # Gap
+        t.append(" ", style="")
+        # Right bar: cyan (tech/future)
+        t.append(B + B, style="bold #00FFFF")
+
+        if i < len(lines) - 1:
+            t.append("\n")
     return t
 
 
 class WelcomeView(Widget):
-    """Welcome screen — SHIYI logo, brand info, tips, shortcuts.
+    """Welcome screen — cyberpunk minimal design.
 
-    Renders a single bordered panel matching input-area width.
+    Clean interface with pixel-art icon and essential info.
     Shown on startup / /new / /clear; removed on first message.
     """
 
@@ -116,72 +125,49 @@ class WelcomeView(Widget):
         self._model_name = model_name
 
     def render(self):
-        # ── Header: SHIYI logo (left) + brand info (right) ──
-        logo = _make_logo()
+        # ── Header: pixel icon + brand (vertically stacked, aligned) ──
+        icon = _make_pixel_icon()
 
-        info = Text()
-        info.append(f"{icons.assistant} ", style="")
-        info.append(icons.app_name, style="bold #FFA500")
-        info.append("  v2.0\n", style="#7a7a7a")
+        brand = Text()
+        brand.append("\n")
+        brand.append("  ShiYi", style="bold #FFA500")
+        brand.append(" v2.0", style="#00FFFF")
         if self._model_name:
-            info.append(self._model_name, style="#9ece6a")
-            info.append("\n")
-        info.append("Your Personal AI Assistant\n", style="italic #7a7a7a")
-        if icons.is_nerd_font:
-            info.append("Nerd Font ", style="#9ece6a")
-            info.append(icons.success, style="#9ece6a")
-        else:
-            info.append("Nerd Font off", style="#4a4540")
+            brand.append("\n  ", style="")
+            brand.append(self._model_name, style="#7a7a7a")
+        brand.append("\n  Personal AI Assistant", style="italic #5a5550")
 
-        header = Table.grid(padding=(0, 4))
+        header = Table.grid(padding=(0, 2))
         header.add_column()
         header.add_column()
-        header.add_row(logo, info)
+        header.add_row(icon, brand)
 
-        # ── Separator ──
-        sep = Text(icons.separator * 42, style="#3a3530")
+        # ── Simple greeting ──
+        greeting = Text()
+        greeting.append("\n  How can I help you today?\n", style="#e0e0e0")
 
-        # ── Greeting ──
-        greeting = Text("\nHi! Ask me anything to get started.\n", style="#e0e0e0")
+        # ── Single row shortcuts ──
+        shortcuts = Text()
+        shortcuts.append("\n  ")
+        shortcuts.append(icons.arrow_right, style="#00FFFF")
+        shortcuts.append(" /help", style="#8a8580")
+        shortcuts.append("  ")
+        shortcuts.append(icons.arrow_right, style="#00FFFF")
+        shortcuts.append(" /new", style="#8a8580")
+        shortcuts.append("  ")
+        shortcuts.append(icons.arrow_right, style="#00FFFF")
+        shortcuts.append(" /list", style="#8a8580")
+        shortcuts.append("     ")
+        shortcuts.append("Ctrl+C", style="#5a5550")
+        shortcuts.append(" interrupt  ", style="#4a4540")
+        shortcuts.append("Ctrl+D", style="#5a5550")
+        shortcuts.append(" quit", style="#4a4540")
+        shortcuts.append("\n")
 
-        # ── Try suggestions (2x2 with bullets) ──
-        try_grid = Table.grid(padding=(0, 3))
-        try_grid.add_column()
-        try_grid.add_column()
-        try_grid.add_row(
-            Text.assemble((f"  {icons.arrow_right} ", "#FFA500"), ('"What\'s the weather"', "italic #a09080")),
-            Text.assemble((f"  {icons.arrow_right} ", "#FFA500"), ('"Write Python code"', "italic #a09080")),
-        )
-        try_grid.add_row(
-            Text.assemble((f"  {icons.arrow_right} ", "#FFA500"), ('"Search latest news"', "italic #a09080")),
-            Text.assemble((f"  {icons.arrow_right} ", "#FFA500"), ('"Read a file for me"', "italic #a09080")),
-        )
-
-        # ── Commands + Shortcuts ──
-        footer = Text()
-        footer.append("\n  Commands  ", style="#7a7a7a")
-        footer.append("/help ", style="bold #FFA500")
-        footer.append("/new ", style="bold #FFA500")
-        footer.append("/list ", style="bold #FFA500")
-        footer.append("/clear\n", style="bold #FFA500")
-        footer.append("  Shortcuts ", style="#7a7a7a")
-        footer.append("Ctrl+C", style="#9ece6a")
-        footer.append(" interrupt  ", style="#7a7a7a")
-        footer.append("Ctrl+L", style="#9ece6a")
-        footer.append(" clear  ", style="#7a7a7a")
-        footer.append("Ctrl+D", style="#9ece6a")
-        footer.append(" quit", style="#7a7a7a")
-
-        if not icons.is_nerd_font:
-            footer.append("\n\n  ", style="")
-            footer.append("Tip", style="italic #4a4540")
-            footer.append(" Install a Nerd Font for better icons ", style="#4a4540")
-            footer.append("fonts/README.md", style="underline #4a4540")
-
-        # ── Assemble into a single bordered panel ──
+        # ── Panel with brighter border ──
         return Panel(
-            Group(header, sep, greeting, try_grid, footer),
-            border_style="#3a3530",
+            Group(header, greeting, shortcuts),
+            border_style="#5a5045",  # Brighter border
             box=box.ROUNDED,
             padding=(1, 2),
         )

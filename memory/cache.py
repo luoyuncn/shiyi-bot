@@ -55,6 +55,7 @@ class LRUCache:
         else:
             if len(self._cache) >= self._max_size:
                 # Evict oldest
+                # 淘汰最旧会话
                 oldest_id, _ = self._cache.popitem(last=False)
                 from loguru import logger
                 logger.debug(f"缓存满，淘汰会话: {oldest_id}")

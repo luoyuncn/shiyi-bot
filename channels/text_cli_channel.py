@@ -19,6 +19,7 @@ class TextCLIChannel(BaseChannel):
         self._print_welcome()
 
         # Create default session
+        # 创建默认会话
         self.current_session = await self.session_manager.create_session({
             "channel": "cli"
         })
@@ -28,9 +29,11 @@ class TextCLIChannel(BaseChannel):
         self.running = True
 
         # Main loop
+        # 主循环
         while self.running:
             try:
                 # Read user input
+                # 读取用户输入
                 user_input = await asyncio.to_thread(
                     input,
                     "\n👤 你: "
@@ -40,11 +43,13 @@ class TextCLIChannel(BaseChannel):
                     continue
 
                 # Handle commands
+                # 处理命令输入
                 if user_input.startswith("/"):
                     await self._handle_command(user_input)
                     continue
 
                 # Save user message
+                # 保存用户消息
                 await self.session_manager.save_message(
                     self.current_session.session_id,
                     "user",
@@ -52,15 +57,18 @@ class TextCLIChannel(BaseChannel):
                 )
 
                 # Process with AgentCore
+                # 交给 AgentCore 处理
                 print("🤖 助手: ", end="", flush=True)
 
                 # Get conversation context
+                # 获取会话上下文
                 context = await self.session_manager.get_session(self.current_session.session_id)
                 messages = await self.session_manager.prepare_messages_for_agent(
                     context.messages
                 )
 
                 # Stream response
+                # 流式输出回复
                 response_text = ""
                 async for event in self.agent_core.process_message_stream(messages):
                     if event["type"] == "text":
@@ -76,6 +84,7 @@ class TextCLIChannel(BaseChannel):
                 print()  # 换行
 
                 # Save assistant message
+                # 保存助手消息
                 await self.session_manager.save_message(
                     self.current_session.session_id,
                     "assistant",

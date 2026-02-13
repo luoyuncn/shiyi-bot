@@ -21,23 +21,28 @@ class Orchestrator:
         self.debug_mode = debug_mode
 
         # Initialize core components
+        # 初始化核心组件
         self.session_manager = SessionManager(config.memory, llm_config=config.llm)
         self.agent_core = AgentCore(config)
 
         # Initialize channels based on config
+        # 根据配置初始化通道
         self.channels = []
 
         # Voice channel
+        # 语音通道
         if config.channels.get("voice", {}).get("enabled", False):
             self.channels.append(VoiceChannel(config))
 
         # CLI channel (skip if TUI mode — TUI is launched separately by main.py)
+        # CLI 通道（TUI 模式下跳过，TUI 由 main.py 单独启动）
         if not tui_mode and config.channels.get("cli", {}).get("enabled", True):
             self.channels.append(
                 TextCLIChannel(config, self.session_manager, self.agent_core)
             )
 
         # API channel
+        # API 通道
         if config.channels.get("api", {}).get("enabled", False):
             self.channels.append(
                 TextAPIChannel(config, self.session_manager, self.agent_core)
@@ -55,9 +60,11 @@ class Orchestrator:
 
         try:
             # Initialize core
+            # 初始化核心
             await self._initialize_core()
 
             # Start all channels
+            # 启动全部通道
             self.running = True
             channel_tasks = [
                 asyncio.create_task(channel.start(), name=f"channel_{i}")
@@ -68,6 +75,7 @@ class Orchestrator:
             logger.info("=" * 60)
 
             # Wait for all channels
+            # 等待所有通道结束
             await asyncio.gather(*channel_tasks, return_exceptions=True)
 
         except Exception as e:
@@ -93,19 +101,23 @@ class Orchestrator:
         logger.info("正在初始化核心组件...")
 
         # Initialize tool registry
+        # 初始化工具注册器
         await ToolRegistry.initialize(self.config.tools)
         logger.info(f"已注册 {len(ToolRegistry.list_tools())} 个工具")
 
         # Initialize Agent registry
+        # 初始化 Agent 注册器
         agent_config = getattr(self.config, 'agent', {}) or {}
         if isinstance(agent_config, dict) and agent_config.get("enable_sub_agents", False):
             from agents.registry import AgentRegistry
             await AgentRegistry.initialize(self.config)
 
         # Initialize agent core
+        # 初始化 Agent Core
         await self.agent_core.initialize()
 
         # Initialize session manager
+        # 初始化会话管理器
         await self.session_manager.initialize()
 
         logger.info("核心组件初始化完成")

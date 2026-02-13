@@ -300,7 +300,9 @@ class MemoryDocumentStore:
             tmp_path.replace(path)
         except PermissionError:
             # Windows can reject replace when the target is temporarily locked
+            # Windows 下若目标文件被临时占用，replace 可能失败。
             # by another reader; fall back to direct write to preserve progress.
+            # 此时回退为直接写入，避免进度丢失。
             path.write_text(content, encoding="utf-8")
             if tmp_path.exists():
                 tmp_path.unlink()

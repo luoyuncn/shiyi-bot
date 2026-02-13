@@ -1,5 +1,5 @@
-/* ShiYi TUI — Warm Amber Theme
- * 配色灵感：60-30-10 法则（深暖灰 / 浅灰白 / 活力橙）
+/* ShiYi TUI — Cyberpunk Amber Theme
+ * 配色灵感：赛博朋克 (深底 / 青色高光 / 橙色主色)
  * 兼容 xterm-256color / Windows Terminal / iTerm2 / GNOME Terminal
  * 适配终端尺寸: 80×24 ~ 256×60 */
 
@@ -26,7 +26,7 @@ WelcomeView {
     margin: 1 0 0 0;
 }
 
-/* ── User Message (右对齐 + 右竖线，与 AI 对称) ── */
+/* ── User Message (右对齐 + 青色右竖线) ── */
 UserMessage {
     width: 100%;
     height: auto;
@@ -35,13 +35,13 @@ UserMessage {
 }
 
 .user-label {
-    color: #7a9cc6;
+    color: #00BFFF;
     text-style: bold;
     text-align: right;
     padding: 0 1 0 1;
     height: 1;
     width: 100%;
-    border-right: solid #7a9cc6;
+    border-right: solid #00BFFF;
 }
 
 .user-bubble {
@@ -49,7 +49,7 @@ UserMessage {
     text-align: right;
     padding: 0 1 0 1;
     width: 1fr;
-    border-right: solid #7a9cc6;
+    border-right: solid #00BFFF;
 }
 
 /* ── Assistant Message (左对齐 + 橙色左竖线) ── */
@@ -95,7 +95,7 @@ MarkdownH1, MarkdownH2, MarkdownH3 {
 
 MarkdownCodeBlock {
     background: #1c1a18;
-    border-left: solid #FFD700;
+    border-left: solid #00FFFF;
     padding: 1;
     margin: 1 0;
     color: #e0e0e0;
@@ -103,7 +103,7 @@ MarkdownCodeBlock {
 
 MarkdownInlineCode {
     background: #2a2520;
-    color: #FFD700;
+    color: #00FFFF;
     text-style: none;
 }
 
@@ -112,7 +112,7 @@ ThinkingIndicator {
     width: 100%;
     height: 1;
     padding: 0 1;
-    color: #7a7a7a;
+    color: #8a8580;
     margin: 1 0 0 0;
 }
 
@@ -120,7 +120,7 @@ ThinkingIndicator {
 SystemNotice {
     width: 100%;
     text-align: left;
-    color: #7a7a7a;
+    color: #8a8580;
     padding: 0 1;
     text-style: italic;
 }
@@ -146,19 +146,19 @@ ToolCallBlock {
 }
 
 ToolCallBlock > CollapsibleTitle {
-    color: #7a7a7a;
+    color: #8a8580;
     background: transparent;
     padding: 0;
 }
 
 ToolCallBlock > CollapsibleTitle:hover {
-    color: #FFA500;
+    color: #00FFFF;
 }
 
 ToolCallBlock > Contents {
     padding-left: 2;
-    border-left: solid #3a3530;
-    color: #7a7a7a;
+    border-left: solid #5a5550;
+    color: #8a8580;
 }
 
 .tool-result {
@@ -174,20 +174,20 @@ ToolCallBlock > Contents {
     margin: 0 0 1 0;
 }
 
-/* ── Input Area (悬浮岛 — 圆角边框) ─────────── */
+/* ── Input Area (cyberpunk floating bar) ────── */
 #input-area {
     height: auto;
     min-height: 1;
     width: 80%;
     max-width: 120;
-    padding: 0 1;
-    background: #252220;
-    border: round #2a2520;
+    padding: 0 2;
+    background: #1e1e1e;
+    border: none;
 }
 
-/* Processing state — border turns orange */
+/* Processing state — orange glow */
 #input-area.processing {
-    border: round #FFA500;
+    background: #1e1e1e;
 }
 
 .prompt-symbol {
@@ -196,6 +196,7 @@ ToolCallBlock > Contents {
     height: 1;
     padding: 0;
     text-style: bold;
+    opacity: 0.8;
 }
 
 #message-input {
@@ -205,7 +206,7 @@ ToolCallBlock > Contents {
     width: 1fr;
     height: auto;
     min-height: 1;
-    padding: 0;
+    padding: 0 1;
 }
 
 #message-input:focus {
@@ -213,7 +214,7 @@ ToolCallBlock > Contents {
 }
 
 #message-input > .input--placeholder {
-    color: #4a4540;
+    color: #5a5550;
 }
 
 /* ── Scrollbar (隐藏) ────────────────────────── */
@@ -226,13 +227,13 @@ ScrollBar {
 LogPanel {
     height: 12;
     dock: bottom;
-    border-top: solid #3a3530;
+    border-top: solid #5a5550;
     background: #1a1a1a;
 }
 
 .log-title {
     background: #252220;
-    color: #7a7a7a;
+    color: #8a8580;
     padding: 0 1;
     text-style: bold;
 }

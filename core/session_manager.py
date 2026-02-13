@@ -16,6 +16,7 @@ from memory.embeddings import EmbeddingConfig, LocalEmbeddingEngine
 from memory.storage import MemoryStorage, SessionRecord
 
 # ── LLM memory extraction prompt ──────────────────────────
+# ── LLM 记忆提取提示词 ──────────────────────────
 _MEMORY_EXTRACTION_PROMPT = """\
 你是一个记忆提取器。从下面的对话内容中提取值得长期记住的用户信息。
 
@@ -64,6 +65,7 @@ class SessionManager:
         self.config = memory_config
         self._llm_config = llm_config
         self._llm_client = None  # lazy init
+        # 懒加载初始化
 
         self.storage = MemoryStorage(memory_config.sqlite_path)
         memory_root = getattr(memory_config, "memory_root", "data/memory")
@@ -90,7 +92,9 @@ class SessionManager:
         await asyncio.to_thread(self.documents.ensure_initialized)
 
         # DB is the single source of truth for identity confirmation.
+        # DB 是身份确认状态的唯一事实来源。
         # IdentityState.md is a mirror record only; it must never drive DB state.
+        # IdentityState.md 仅做镜像记录，不能反向驱动 DB 状态。
         user_state = await self.storage.get_global_user_state()
         await asyncio.to_thread(
             self.documents.write_identity_state,
@@ -189,8 +193,10 @@ class SessionManager:
                 await self._try_complete_identity_onboarding_from_message(content)
 
             # Regex fast-path (sync, instant)
+            # 正则快速路径（同步、即时）
             await self.summarize_and_store(content, source_message_id=message_id)
             # LLM deep extraction (async, fire-and-forget)
+            # LLM 深度提取（异步、fire-and-forget）
             user_state = await self.storage.get_global_user_state()
             if self._memory_updates_enabled(user_state):
                 self._fire_llm_extraction(content, source_message_id=message_id)
@@ -215,6 +221,7 @@ class SessionManager:
         confirmed = confirm_value in {"是", "确认", "yes", "ok", "true"}
 
         # Natural-language fallback for onboarding confirmation.
+        # onboarding 确认的自然语言兜底解析。
         if not shiyi_identity:
             shiyi_match = re.search(
                 r"(?:十一|你)(?:的)?(?:人设|定位|身份)?(?:是|为)\s*([^\n。；;]{4,120})",
@@ -256,6 +263,7 @@ class SessionManager:
         return True
 
     # ── LLM-based memory extraction (async, fire-and-forget) ──────
+    # ── 基于 LLM 的记忆提取（异步 fire-and-forget） ──────
 
     def _fire_llm_extraction(self, content: str, source_message_id: str | None = None):
         """Launch LLM memory extraction as a background task."""
@@ -280,6 +288,7 @@ class SessionManager:
             return
 
         # Skip very short content
+        # 跳过过短文本
         if len(content.strip()) < 6:
             return
 
@@ -296,6 +305,7 @@ class SessionManager:
 
             raw = (response.choices[0].message.content or "").strip()
             # Strip markdown code fences if present
+            # 如果有 Markdown 代码围栏则去掉
             if raw.startswith("```"):
                 raw = re.sub(r"^```(?:json)?\s*", "", raw)
                 raw = re.sub(r"\s*```$", "", raw)
@@ -460,6 +470,7 @@ class SessionManager:
         candidates: list[dict] = []
 
         # ── User self-introduction ──
+        # ── 用户自我介绍 ──
         name_match = re.search(r"我叫\s*([^\s，。！？,!.?]{1,20})", content)
         if name_match:
             candidates.append(
@@ -475,6 +486,7 @@ class SessionManager:
             )
 
         # ── User identity variants ("你可以叫我X", "叫我X就行") ──
+        # ── 用户身份表达变体（“你可以叫我X”“叫我X就行”） ──
         alias_match = re.search(
             r"(?:你可以)?叫我\s*([^\s，。！？,!.?]{1,20})",
             content,
@@ -493,6 +505,7 @@ class SessionManager:
             )
 
         # ── Assistant confirmation of user name ──
+        # ── 助手确认用户称呼 ──
         confirm_name = re.search(
             r"(?:记住了|好的|了解|收到)[，,]?\s*(?:你(?:叫|是)|称呼.*?为?)\s*([^\s，。！？,!.?]{1,20})",
             content,
@@ -511,6 +524,7 @@ class SessionManager:
             )
 
         # ── User profession/role ("我是程序员", "我做后端的") ──
+        # ── 用户职业/角色（“我是程序员”“我做后端的”） ──
         role_match = re.search(
             r"我(?:是|做)\s*([^\s，。！？,!.?]{2,20}?)(?:的|$)",
             content,
@@ -531,6 +545,7 @@ class SessionManager:
                 )
 
         # ── Tech preference (explicit) ──
+        # ── 技术偏好（显式表达） ──
         pref_match = re.search(
             r"我(?:更)?(?:喜欢|偏好|偏爱)\s*([A-Za-z][A-Za-z0-9+._-]{1,30})",
             content,
@@ -549,6 +564,7 @@ class SessionManager:
             )
 
         # ── Tech preference (medium confidence) ──
+        # ── 技术偏好（中等置信度） ──
         medium_pref_match = re.search(
             r"我最近在用\s*([A-Za-z][A-Za-z0-9+._-]{1,30})",
             content,
@@ -567,6 +583,7 @@ class SessionManager:
             )
 
         # ── General preference ("我习惯X", "我常用X") ──
+        # ── 通用偏好（“我习惯X”“我常用X”） ──
         habit_match = re.search(
             r"我(?:习惯|常用|一直用)\s*([^\s，。！？,!.?]{2,30})",
             content,
@@ -1112,6 +1129,7 @@ class SessionManager:
         if self._embedding_task:
             self._embedding_task.cancel()
         # Wait for background extraction tasks to finish
+        # 等待后台提取任务结束
         if self._extraction_tasks:
             await asyncio.gather(*self._extraction_tasks, return_exceptions=True)
         await asyncio.gather(

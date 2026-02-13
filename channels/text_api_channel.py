@@ -55,6 +55,7 @@ class TextAPIChannel(BaseChannel):
         self.app = FastAPI(title="Shiyi API", version="2.0.0")
 
         # Configure CORS
+        # 配置跨域策略
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=config.channels.get("api", {}).get("cors_origins", ["*"]),
@@ -64,6 +65,7 @@ class TextAPIChannel(BaseChannel):
         )
 
         # Register routes
+        # 注册路由
         self._setup_routes()
 
     def _setup_routes(self):
@@ -74,6 +76,7 @@ class TextAPIChannel(BaseChannel):
             """Non-streaming chat endpoint"""
             try:
                 # Get or create session
+                # 获取或创建会话
                 if request.session_id:
                     context = await self.session_manager.get_session(request.session_id)
                     if not context:
@@ -84,6 +87,7 @@ class TextAPIChannel(BaseChannel):
                     session_id = session.session_id
 
                 # Save user message
+                # 保存用户消息
                 await self.session_manager.save_message(
                     session_id,
                     "user",
@@ -91,12 +95,14 @@ class TextAPIChannel(BaseChannel):
                 )
 
                 # Get context and process
+                # 获取上下文并处理请求
                 context = await self.session_manager.get_session(session_id)
                 messages = await self.session_manager.prepare_messages_for_agent(
                     context.messages
                 )
 
                 # Collect full response
+                # 聚合完整回复
                 full_response = ""
                 async for event in self.agent_core.process_message_stream(
                     messages,
@@ -106,6 +112,7 @@ class TextAPIChannel(BaseChannel):
                         full_response += event["content"]
 
                 # Save assistant message
+                # 保存助手消息
                 await self.session_manager.save_message(
                     session_id,
                     "assistant",
@@ -126,6 +133,7 @@ class TextAPIChannel(BaseChannel):
             """Streaming chat endpoint (JSONL format)"""
             try:
                 # Get or create session
+                # 获取或创建会话
                 if request.session_id:
                     context = await self.session_manager.get_session(request.session_id)
                     if not context:
@@ -136,6 +144,7 @@ class TextAPIChannel(BaseChannel):
                     session_id = session.session_id
 
                 # Save user message
+                # 保存用户消息
                 await self.session_manager.save_message(
                     session_id,
                     "user",
@@ -143,6 +152,7 @@ class TextAPIChannel(BaseChannel):
                 )
 
                 # Get context
+                # 获取会话上下文
                 context = await self.session_manager.get_session(session_id)
                 messages = await self.session_manager.prepare_messages_for_agent(
                     context.messages
@@ -153,12 +163,14 @@ class TextAPIChannel(BaseChannel):
                     full_response = ""
                     try:
                         # Send session ID first
+                        # 先发送 session_id
                         yield json.dumps({
                             "type": "session",
                             "session_id": session_id
                         }, ensure_ascii=False) + "\n"
 
                         # Stream events
+                        # 按事件流式输出
                         async for event in self.agent_core.process_message_stream(
                             messages,
                             enable_tools=request.enable_tools
@@ -169,6 +181,7 @@ class TextAPIChannel(BaseChannel):
                             yield json.dumps(event, ensure_ascii=False) + "\n"
 
                         # Save assistant message
+                        # 保存助手消息
                         if full_response:
                             await self.session_manager.save_message(
                                 session_id,

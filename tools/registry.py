@@ -17,11 +17,13 @@ class ToolRegistry:
             return
 
         # Load built-in tools
+        # 加载内置工具
         builtin_tools = tools_config.builtin
         for tool_name in builtin_tools:
             await cls._load_builtin_tool(tool_name)
 
         # Load MCP tools if enabled
+        # 若启用 MCP，则加载 MCP 工具
         mcp_config = tools_config.mcp
         if isinstance(mcp_config, dict) and mcp_config.get("enabled", False):
             servers = mcp_config.get("servers", [])

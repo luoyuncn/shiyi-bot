@@ -128,6 +128,7 @@ def _load_dotenv(env_path: Path) -> None:
             continue
 
         # Strip optional quotes
+        # 去掉可选的引号包裹
         if (value.startswith('"') and value.endswith('"')) or (
             value.startswith("'") and value.endswith("'")
         ):
@@ -149,6 +150,7 @@ def _apply_llm_env_compatibility() -> None:
             os.environ[new_var] = os.environ[legacy_var]
 
     # Keep previous behavior as defaults when provider/model is not explicitly set
+    # 当 provider/model 未显式设置时，保持旧行为作为默认值
     os.environ.setdefault("LLM_BASE_URL", "https://api.deepseek.com/v1")
     os.environ.setdefault("LLM_MODEL", "deepseek-chat")
 

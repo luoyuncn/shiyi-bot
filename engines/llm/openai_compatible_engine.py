@@ -146,6 +146,7 @@ class OpenAICompatibleEngine(BaseEngine):
             message = choice.message
 
             # Extract usage data if available
+            # 如果有 usage 数据则提取出来
             usage = None
             if hasattr(response, "usage") and response.usage:
                 usage = {
@@ -221,14 +222,18 @@ class OpenAICompatibleEngine(BaseEngine):
                 request_params["tools"] = tools
                 request_params["tool_choice"] = "auto"
                 # Add stream_options for usage if supported (OpenAI standard)
+                # 若服务端支持，可开启 stream_options 返回 usage（OpenAI 标准）
                 # request_params["stream_options"] = {"include_usage": True}
+                # 示例：开启增量流中的 usage 统计
 
             stream = await self.client.chat.completions.create(**request_params)
 
             tool_calls_buffer = {}  # index -> dict
+            # 工具调用增量缓冲：索引 -> 调用对象
 
             async for chunk in stream:
                 # Handle usage if present in the chunk (some providers send it in the last chunk)
+                # 处理 chunk 中携带的 usage（部分服务商会在最后一个 chunk 返回）
                 if hasattr(chunk, "usage") and chunk.usage:
                     yield {
                         "type": "usage",
@@ -245,10 +250,12 @@ class OpenAICompatibleEngine(BaseEngine):
                 delta = chunk.choices[0].delta
 
                 # 1. Text Content
+                # 1. 文本增量
                 if delta.content:
                     yield {"type": "text_delta", "content": delta.content}
 
                 # 2. Tool Calls
+                # 2. 工具调用增量
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         idx = tc.index
@@ -268,8 +275,10 @@ class OpenAICompatibleEngine(BaseEngine):
                                 entry["function"]["arguments"] += tc.function.arguments
 
             # End of stream logic
+            # 流结束后的收尾逻辑
             if tool_calls_buffer:
                 # Convert buffer to list
+                # 把缓冲字典转换为有序列表
                 tool_calls = []
                 for idx in sorted(tool_calls_buffer.keys()):
                     entry = tool_calls_buffer[idx]
@@ -286,7 +295,9 @@ class OpenAICompatibleEngine(BaseEngine):
                 }
 
             # Note: For text responses, we've already yielded all deltas.
+            # 注意：文本响应的所有增量已经在上面逐步产出。
             # The AgentCore will responsible for accumulating them for history.
+            # 后续由 AgentCore 负责把这些增量拼接并写入历史。
 
         except Exception as e:
             logger.error(f"LLM流式生成失败: {e}")

@@ -85,6 +85,7 @@ class LocalEmbeddingEngine:
         ascii_tokens = re.findall(r"[a-z0-9_+#.-]{2,}", text)
         chinese_chars = re.findall(r"[\u4e00-\u9fff]", text)
         # Merge individual Chinese chars into bi-grams for slightly richer semantics.
+        # 将单个中文字符合并为二元组，以获得稍丰富的语义表达。
         chinese_bigrams = [
             chinese_chars[i] + chinese_chars[i + 1]
             for i in range(len(chinese_chars) - 1)

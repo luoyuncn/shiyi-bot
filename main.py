@@ -21,7 +21,9 @@ def _detect_alsa_capture_card() -> str | None:
         if len(parts) != 2:
             continue
         left = parts[0].strip()  # e.g. "3 [seeed2micvoicec]"
+        # 例如："3 [seeed2micvoicec]"
         card_idx = left.split()[0]  # numeric index
+        # 声卡数字索引
         if "[" in left and "]" in left:
             name = left.split("[", 1)[1].split("]", 1)[0].strip()
         else:
@@ -33,6 +35,7 @@ def _detect_alsa_capture_card() -> str | None:
         if "capture" not in line:
             continue
         # format: "03-00: ..." — strip leading zeros to match card_names keys
+        # 格式如 "03-00: ..."，去掉前导零以匹配 card_names 的键
         try:
             raw_idx = line.split("-", 1)[0].strip()
             card_idx = str(int(raw_idx)) if raw_idx.isdigit() else raw_idx
@@ -141,6 +144,7 @@ async def main(args: argparse.Namespace):
         if tui_mode:
             # TUI 模式：抑制 stdout 日志，仅保留文件日志
             # debug 面板会通过自定义 sink 接收日志
+            # debug panel 会通过自定义 sink 接收日志
             setup_logger(config.system.log_level, suppress_stdout=True)
         else:
             setup_logger(config.system.log_level)

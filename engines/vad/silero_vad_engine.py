@@ -128,6 +128,7 @@ class SileroVADEngine(BaseEngine):
 
             audio_bytes = buffer.getvalue()
             duration = len(audio_bytes) / (self.sample_rate * 2)  # int16 = 2 bytes
+            # int16 每个采样点占 2 字节
             logger.info(f"✅ 录音完成: {len(audio_bytes)} bytes ({duration:.1f}秒)")
 
             return audio_bytes

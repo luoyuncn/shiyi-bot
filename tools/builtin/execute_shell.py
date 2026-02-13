@@ -30,6 +30,7 @@ class Tool(BaseTool):
         command = params.get("command", "")
 
         # Blacklist
+        # 危险命令黑名单
         dangerous_commands = [
             "rm -rf", "dd if=", "mkfs", "format",
             "> /dev/sda", ":(){ :|:& };:"

@@ -44,6 +44,7 @@ class AudioPlayer:
     def start(self):
         """启动播放器（PyAudio 模式下打开流）"""
         if self._use_pulse:
+            # PulseAudio 模式使用子进程播放，不需要预开流
             return  # PulseAudio 模式下无需预先打开流
 
         import pyaudio
@@ -76,6 +77,7 @@ class AudioPlayer:
     async def _play_pulse(self, mp3_data: bytes):
         """ffmpeg 解码 MP3 → PCM → paplay (PulseAudio)"""
         # Step 1: ffmpeg MP3 → raw s16le PCM
+        # 第一步：用 ffmpeg 把 MP3 解码为原始 s16le PCM
         ff_cmd = [
             "ffmpeg", "-loglevel", "quiet",
             "-i", "pipe:0",
@@ -101,6 +103,7 @@ class AudioPlayer:
             return
 
         # Step 2: paplay
+        # 第二步：通过 paplay 输出到 PulseAudio
         pa_cmd = [
             "paplay",
             "--raw",
