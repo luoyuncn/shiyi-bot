@@ -2,7 +2,7 @@
 from openai import AsyncOpenAI
 from engines.base import BaseEngine
 from loguru import logger
-from typing import AsyncGenerator, List, Dict
+from typing import AsyncGenerator, List, Dict, Any
 
 
 class OpenAICompatibleEngine(BaseEngine):
@@ -109,7 +109,11 @@ class OpenAICompatibleEngine(BaseEngine):
     async def chat_with_tools(
         self,
         messages: List[Dict[str, str]],
-        tools: List[Dict] = None
+        tools: List[Dict] = None,
+        tool_choice: Any = "auto",
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        response_format: Dict[str, Any] | None = None,
     ) -> Dict:
         """
         支持工具调用的对话（非流式）
@@ -128,17 +132,21 @@ class OpenAICompatibleEngine(BaseEngine):
             logger.debug(f"发起LLM请求（支持工具）: {len(messages)} 条消息")
 
             # 构建请求参数
-            request_params = {
+            request_params: Dict[str, Any] = {
                 "model": self.model,
                 "messages": messages,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
+                "temperature": self.temperature if temperature is None else temperature,
+                "max_tokens": self.max_tokens if max_tokens is None else max_tokens,
             }
 
             # 如果提供了工具定义，添加到请求中
             if tools:
                 request_params["tools"] = tools
-                request_params["tool_choice"] = "auto"
+                if tool_choice is not None:
+                    request_params["tool_choice"] = tool_choice
+
+            if response_format is not None:
+                request_params["response_format"] = response_format
 
             response = await self.client.chat.completions.create(**request_params)
 

@@ -1,5 +1,5 @@
 """配置加载器"""
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import yaml
 import os
 import re
@@ -84,6 +84,7 @@ class MemoryConfig(BaseModel):
     embedding_retry_limit: int = 3
     embedding_retry_base_seconds: int = 10
     embedding_poll_interval: int = 5
+    kuzu_path: str = "data/kuzu"  # Kuzu 图数据库路径
 
 
 class TUIConfig(BaseModel):
@@ -91,11 +92,36 @@ class TUIConfig(BaseModel):
     nerd_font: bool = False  # 启用 Nerd Font 图标（需用户自行安装字体）
 
 
+class ContextBudgetConfig(BaseModel):
+    """Context token 预算配置"""
+    total_tokens: int = 6000
+    system_reserved_tokens: int = 800
+
+
+class ComplexityDetectorConfig(BaseModel):
+    """复杂任务启发式检测配置（零额外 LLM 调用）"""
+    enabled: bool = True
+    message_length_threshold: int = 80
+    multi_tool_threshold: int = 2
+    step_keywords: list[str] = Field(default_factory=lambda: [
+        "步骤", "先.*再.*然后", "分析并", "重构", "迁移", "帮我做", "帮我搞",
+    ])
+    multi_tool_domains: dict[str, list[str]] = Field(default_factory=lambda: {
+        "search": ["搜索", "查一下", "找找"],
+        "file":   ["文件", "代码", "读取"],
+        "shell":  ["执行", "运行", "命令"],
+    })
+    continuation_markers: list[str] = Field(default_factory=lambda: [
+        "接下来", "第一步", "下一步",
+    ])
+
+
 class AgentConfig(BaseModel):
     """Agent 配置"""
     enable_sub_agents: bool = True
-    max_context_tokens: int = 4000
-    max_tool_iterations: int = 5  # 工具调用最大迭代次数，防止无限循环
+    max_tool_iterations: int = 5
+    context_budget: ContextBudgetConfig = Field(default_factory=ContextBudgetConfig)
+    complexity_detector: ComplexityDetectorConfig = Field(default_factory=ComplexityDetectorConfig)
 
 
 class Settings(BaseModel):

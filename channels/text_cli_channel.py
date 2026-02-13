@@ -70,14 +70,32 @@ class TextCLIChannel(BaseChannel):
                 # Stream response
                 # 流式输出回复
                 response_text = ""
+                tool_call_count = 0
+                _TOOL_ICONS = {
+                    "search_web": "🔍", "super_search": "🔍",
+                    "bash": "⚡", "read_file": "📄",
+                    "write_file": "✏️", "edit_file": "✏️",
+                    "query_memory": "🧠",
+                }
                 async for event in self.agent_core.process_message_stream(messages):
                     if event["type"] == "text":
                         print(event["content"], end="", flush=True)
                         response_text += event["content"]
                     elif event["type"] == "tool_call":
-                        print(f"\n[调用工具: {event['tool']}]", flush=True)
+                        tool_call_count += 1
+                        tool = event["tool"]
+                        icon = _TOOL_ICONS.get(tool, "🔧")
+                        args = event.get("args", {})
+                        arg_summary = ""
+                        if isinstance(args, dict) and args:
+                            first_val = next(iter(args.values()), "")
+                            arg_summary = f': "{str(first_val)[:60]}"' if first_val else ""
+                        print(f"\n  {icon} [{tool_call_count}] {tool}{arg_summary}", flush=True)
                     elif event["type"] == "tool_result":
-                        print("[工具返回]", flush=True)
+                        result = str(event.get("result", ""))
+                        first_line = result.split("\n")[0][:80] if result else ""
+                        summary = f" → {first_line}" if first_line else ""
+                        print(f"  ✓ [{tool_call_count}]{summary}", flush=True)
                     elif event["type"] == "error":
                         print(f"\n❌ 错误: {event['error']}", flush=True)
 

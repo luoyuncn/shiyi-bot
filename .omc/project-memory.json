@@ -1,0 +1,301 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1770964133617,
+  "projectRoot": "d:\\vibecoding\\shiyi",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "fastapi",
+        "version": null,
+        "category": "backend"
+      },
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pytest",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "agents": {
+      "path": "agents",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1770964133587,
+      "keyFiles": [
+        "base_agent.py",
+        "registry.py",
+        "__init__.py"
+      ]
+    },
+    "audio": {
+      "path": "audio",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1770964133588,
+      "keyFiles": [
+        "player.py",
+        "recorder.py",
+        "__init__.py"
+      ]
+    },
+    "channels": {
+      "path": "channels",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1770964133588,
+      "keyFiles": [
+        "base.py",
+        "text_api_channel.py",
+        "text_cli_channel.py",
+        "voice_channel.py",
+        "__init__.py"
+      ]
+    },
+    "config": {
+      "path": "config",
+      "purpose": "Configuration files",
+      "fileCount": 4,
+      "lastAccessed": 1770964133589,
+      "keyFiles": [
+        "asound.conf",
+        "config.yaml",
+        "settings.py",
+        "__init__.py"
+      ]
+    },
+    "core": {
+      "path": "core",
+      "purpose": null,
+      "fileCount": 7,
+      "lastAccessed": 1770964133589,
+      "keyFiles": [
+        "agent_core.py",
+        "assistant.py",
+        "orchestrator.py",
+        "sentence_splitter.py",
+        "session_manager.py"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 1,
+      "lastAccessed": 1770964133589,
+      "keyFiles": [
+        "sessions.db"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1770964133589,
+      "keyFiles": [
+        "implementation-plan.md",
+        "personal-assistant-design-v1.md"
+      ]
+    },
+    "engines": {
+      "path": "engines",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1770964133590,
+      "keyFiles": [
+        "base.py",
+        "__init__.py"
+      ]
+    },
+    "fonts": {
+      "path": "fonts",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1770964133590,
+      "keyFiles": [
+        "check_fonts.ps1",
+        "install_nerd_font.py",
+        "JetBrainsMono.zip",
+        "README.md",
+        "test_icons.py"
+      ]
+    },
+    "logs": {
+      "path": "logs",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1770964133590,
+      "keyFiles": [
+        "assistant_2026-02-11.log",
+        "assistant_2026-02-12.log",
+        "assistant_2026-02-13.log"
+      ]
+    },
+    "memory": {
+      "path": "memory",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1770964133590,
+      "keyFiles": [
+        "cache.py",
+        "documents.py",
+        "embeddings.py",
+        "storage.py",
+        "__init__.py"
+      ]
+    },
+    "models": {
+      "path": "models",
+      "purpose": "Data models",
+      "fileCount": 1,
+      "lastAccessed": 1770964133590,
+      "keyFiles": []
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 11,
+      "lastAccessed": 1770964133591,
+      "keyFiles": [
+        "test_agent_core.py",
+        "test_builtin_tools.py",
+        "test_memory_cache.py",
+        "test_memory_documents.py",
+        "test_memory_pipeline.py"
+      ]
+    },
+    "tools": {
+      "path": "tools",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1770964133591,
+      "keyFiles": [
+        "base.py",
+        "mcp_client.py",
+        "registry.py",
+        "__init__.py"
+      ]
+    },
+    "utils": {
+      "path": "utils",
+      "purpose": "Utility functions",
+      "fileCount": 2,
+      "lastAccessed": 1770964133591,
+      "keyFiles": [
+        "logger.py",
+        "__init__.py"
+      ]
+    },
+    "__pycache__": {
+      "path": "__pycache__",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1770964133591,
+      "keyFiles": [
+        "main.cpython-311.pyc",
+        "main.cpython-314.pyc"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "core/session_manager.py",
+      "accessCount": 5,
+      "lastAccessed": 1770966352031,
+      "type": "file"
+    },
+    {
+      "path": ".",
+      "accessCount": 4,
+      "lastAccessed": 1770966832344,
+      "type": "directory"
+    },
+    {
+      "path": "core\\session_manager.py",
+      "accessCount": 2,
+      "lastAccessed": 1770965648373,
+      "type": "file"
+    },
+    {
+      "path": "memory/storage.py",
+      "accessCount": 2,
+      "lastAccessed": 1770966219794,
+      "type": "file"
+    },
+    {
+      "path": "memory\\documents.py",
+      "accessCount": 2,
+      "lastAccessed": 1770966837113,
+      "type": "file"
+    },
+    {
+      "path": "memory\\storage.py",
+      "accessCount": 1,
+      "lastAccessed": 1770965648355,
+      "type": "file"
+    },
+    {
+      "path": "reproduce_reset.py",
+      "accessCount": 1,
+      "lastAccessed": 1770966054845,
+      "type": "file"
+    },
+    {
+      "path": "debug_memory.py",
+      "accessCount": 1,
+      "lastAccessed": 1770966523825,
+      "type": "file"
+    },
+    {
+      "path": "data\\memory\\system\\ShiYi.md",
+      "accessCount": 1,
+      "lastAccessed": 1770966837089,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}emory\\template\\ShiYiTemplate.md",
+      "accessCount": 1,
+      "lastAccessed": 1770966837113,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

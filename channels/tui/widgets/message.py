@@ -1,4 +1,5 @@
 """Message widgets — user bubble, assistant markdown, thinking indicator, notices, welcome"""
+from rich.markup import escape
 from textual.widget import Widget
 from textual.widgets import Static, Markdown
 from rich.text import Text
@@ -19,7 +20,7 @@ class UserMessage(Widget):
 
     def compose(self):
         yield Static(f"You {icons.user}", classes="user-label")
-        yield Static(self._content, classes="user-bubble")
+        yield Static(escape(self._content), classes="user-bubble")
 
 
 class AssistantMessage(Widget):

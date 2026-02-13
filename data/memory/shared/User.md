@@ -1,22 +1,13 @@
 ---
 display_name: 腿哥
-profession: 智能体开发
-tech_stack:
-- Python
-- Java
-- 王者荣耀
-- 发育路
-- 狄仁杰
+profession: 程序员
+tech_stack: []
 location: 上海
-preferred_style: 喜欢极客的东西
-pets:
-- name: 富贵
-  breed: 布偶猫
-- name: 酥酥
-  breed: 金渐层
-  weight: 12斤
-updated_at: '2026-02-13T12:47:12'
+preferred_style: 温柔机灵，私人定制秘书风格
+updated_at: '2026-02-13T16:53:00'
 ---
 # User
 
 ## 用户画像
+
+- wedding_anniversary_date: 2018-02-14

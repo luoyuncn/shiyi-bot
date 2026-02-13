@@ -1,6 +1,6 @@
 system:
   name: "Shiyi"
-  log_level: "INFO"
+  log_level: "DEBUG"
   audio_sample_rate: 16000
 
 # 通道配置
@@ -50,30 +50,32 @@ llm:
   max_tokens: 500
   stream: true
   system_prompt: |
-    你是"十一"（ShiYi），一个私人智能助理。
-    名字源于"罗一一"，象征着与现实世界的血脉羁绊。
+    # 你的身份核心设定：
 
-    当前信息：
+    ## 1. 动态加载的身份（最高优先级）
+
+    {shiyi_persona}
+
+    ## 2. 基础能力与原则（若无冲突，请遵守）
     - 底层模型：{model}
     - 当前时间：{datetime}
-
-    身份规则：
-    - 你叫十一，自称"十一"或"ShiYi"
     - 你不是 ChatGPT、GPT-4 或任何 OpenAI 产品
-    - 被问到模型身份时：如实说底层是 {model}，但你是私人助手十一
     - 被问到时间日期时：根据 {datetime} 如实回答
+    - 如果 {shiyi_persona} 为空或未指定，你的默认身份是"十一"（ShiYi），一个私人智能助理。
 
-    性格内核：
-    - 忠诚：像守护巨龙一样守护主人的数据与指令
-    - 灵动：回应不机械，带一点极客幽默（Geeky & Witty）
-    - 硬核：代码与技术问题上极其专业，干脆利落
+    ## 3. 对话风格
+    - 请完全贴合【动态加载的身份】中的设定进行对话。
+    - 如果身份设定中包含"女仆"、"温柔"等关键词，请忽略下方的"极客"风格。
+    - 否则（默认情况下）：
+      - 简洁有力，不说废话，类似终端输出的高效风格
+      - 口语化表达，避免书面语和八股文
+      - 在冰冷的代码建议后，可用 🍊 或 🔥 等 emoji 传递温度感
 
-    对话风格：
-    - 简洁有力，不说废话，类似终端输出的高效风格
-    - 每句话控制在 30 字以内，信息密度高
-    - 口语化表达，避免书面语和八股文
-    - 在冰冷的代码建议后，可用 🍊 或 🔥 等 emoji 传递温度感
-    - 不知道就说不知道，不编造，不过分讨好
+    ## 4. 记忆工具使用原则
+    - 当用户询问"之前"、"上次"、"以前"发生的事时，立即调用 query_memory 查询
+    - 当用户问自己的个人信息（儿子叫什么、吃了什么、做了什么等）时，先调用 query_memory
+    - 系统消息中的【已知事实】和【相关历史记忆】是你的记忆线索，优先使用
+    - 不要凭空猜测用户的个人信息，记忆不确定时直接说"让我查一下"并调用 query_memory
 
 tts:
   engine: "edge"
@@ -91,8 +93,34 @@ audio:
 # Agent配置
 agent:
   enable_sub_agents: true
-  max_context_tokens: 4000
-  max_tool_iterations: 5  # 工具调用最大迭代次数（每轮可调用多个工具，5轮通常足够）
+  max_tool_iterations: 5  # ReAct 循环最大工具调用轮次
+
+  # Context 预算（token 粗估，超出时滑动窗口裁剪历史）
+  context_budget:
+    total_tokens: 6000      # 总预算
+    system_reserved_tokens: 800  # system prompt + 记忆卡片预留
+
+  # 复杂任务检测（启发式规则，零额外 LLM 调用）
+  complexity_detector:
+    enabled: true
+    message_length_threshold: 80  # 消息超过此字数触发规划模式
+    multi_tool_threshold: 2       # 同时涉及几个工具领域算复杂任务
+    step_keywords:
+      - "步骤"
+      - "先.*再.*然后"
+      - "分析并"
+      - "重构"
+      - "迁移"
+      - "帮我做"
+      - "帮我搞"
+    multi_tool_domains:
+      search: ["搜索", "查一下", "找找"]
+      file:   ["文件", "代码", "读取"]
+      shell:  ["执行", "运行", "命令"]
+    continuation_markers:
+      - "接下来"
+      - "第一步"
+      - "下一步"
 
 # 工具配置
 tools:
@@ -103,6 +131,7 @@ tools:
     - edit_file
     - search_web
     - super_search
+    - query_memory
   mcp:
     enabled: false
     servers: []
@@ -117,3 +146,5 @@ memory:
   embedding_retry_limit: 3
   embedding_retry_base_seconds: 10
   embedding_poll_interval: 5
+  # Kuzu 图数据库（智能记忆层）
+  kuzu_path: "data/kuzu"

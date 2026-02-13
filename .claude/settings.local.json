@@ -24,7 +24,10 @@
       "Bash(git pull:*)",
       "Bash(git push:*)",
       "Bash(findstr:*)",
-      "Bash(if exist \"d:\\\\vibecoding\\\\shiyi\\\\data\\\\sessions.db\" del \"d:\\\\vibecoding\\\\shiyi\\\\data\\\\sessions.db\")"
+      "Bash(if exist \"d:\\\\vibecoding\\\\shiyi\\\\data\\\\sessions.db\" del \"d:\\\\vibecoding\\\\shiyi\\\\data\\\\sessions.db\")",
+      "Bash(.venv\\\\Scripts\\\\python:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

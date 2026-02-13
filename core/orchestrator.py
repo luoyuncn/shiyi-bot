@@ -96,6 +96,13 @@ class Orchestrator:
         await self.agent_core.cleanup()
         await self.session_manager.cleanup()
 
+        # 关闭 Kuzu
+        try:
+            from memory import kuzu_manager
+            await kuzu_manager.cleanup()
+        except Exception as e:
+            logger.warning(f"Kuzu 关闭时出现警告: {e}")
+
     async def _initialize_core(self):
         """Initialize core components"""
         logger.info("正在初始化核心组件...")
@@ -112,6 +119,18 @@ class Orchestrator:
             from agents.registry import AgentRegistry
             await AgentRegistry.initialize(self.config)
 
+        # Initialize Kuzu memory layer
+        # 初始化 Kuzu 图记忆层
+        try:
+            from memory import kuzu_manager
+            kuzu_path = getattr(self.config.memory, "kuzu_path", "data/kuzu")
+            await kuzu_manager.initialize(db_path=kuzu_path)
+
+            # 首次启动时从 SQLite memory_facts 迁移数据到 Kuzu
+            await self._maybe_migrate_to_kuzu()
+        except Exception as e:
+            logger.warning(f"Kuzu 初始化失败（将降级运行，不影响主流程）: {e}")
+
         # Initialize agent core
         # 初始化 Agent Core
         await self.agent_core.initialize()
@@ -121,3 +140,42 @@ class Orchestrator:
         await self.session_manager.initialize()
 
         logger.info("核心组件初始化完成")
+
+    async def _maybe_migrate_to_kuzu(self) -> None:
+        """首次启动时将 SQLite memory_facts 迁移到 Kuzu（只迁一次）。"""
+        from memory import kuzu_manager
+        from pathlib import Path
+
+        # 用 sentinel 文件标记是否已迁移
+        sentinel = Path(getattr(self.config.memory, "kuzu_path", "data/kuzu")) / ".migrated"
+        if sentinel.exists():
+            return
+
+        try:
+            writer = kuzu_manager.get_writer()
+            if writer is None:
+                return
+
+            # 读取 SQLite memory_facts
+            from memory.storage import MemoryStorage
+            storage = MemoryStorage(db_path=self.config.memory.sqlite_path)
+            await storage.initialize()
+            fact_records = await storage.list_memory_facts(status="active", limit=500)
+            facts = [
+                {
+                    "scope": r.scope,
+                    "fact_key": r.fact_key,
+                    "fact_value": r.fact_value,
+                    "confidence": r.confidence,
+                }
+                for r in fact_records
+            ]
+            await storage.cleanup()
+
+            if facts:
+                count = await writer.migrate_from_sqlite_facts(facts)
+                logger.info(f"Kuzu 迁移完成: {count} 条记忆事实")
+
+            sentinel.touch()
+        except Exception as e:
+            logger.warning(f"Kuzu 迁移跳过（非致命）: {e}")

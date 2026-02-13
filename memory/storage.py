@@ -336,6 +336,32 @@ class MemoryStorage:
             )
             return list(result.scalars().all())
 
+    async def get_messages_metadata_by_ids(self, message_ids: list[str]) -> dict[str, dict]:
+        """Get lightweight metadata for a list of messages."""
+        ids = [str(mid).strip() for mid in (message_ids or []) if str(mid).strip()]
+        if not ids:
+            return {}
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(
+                    MessageRecord.id,
+                    MessageRecord.role,
+                    MessageRecord.session_id,
+                    MessageRecord.timestamp,
+                ).where(MessageRecord.id.in_(ids))
+            )
+            rows = result.all()
+
+        return {
+            row[0]: {
+                "role": row[1],
+                "session_id": row[2],
+                "timestamp": row[3].isoformat() if row[3] else None,
+            }
+            for row in rows
+        }
+
     async def search_messages_by_keyword(self, query: str, limit: int = 5) -> list[dict]:
         """Search messages by keyword using SQLite FTS5 (with LIKE fallback)."""
         query = (query or "").strip()
@@ -851,12 +877,16 @@ class MemoryStorage:
                     "sessions",
                 ):
                     await session.execute(text(f"DELETE FROM {tbl}"))
+
                 await session.execute(
-                    text(
-                        "UPDATE users SET identity_confirmed=0, onboarding_prompted=0,"
-                        " display_name=NULL, updated_at=:now WHERE user_id=:uid"
-                    ),
-                    {"now": datetime.now(), "uid": GLOBAL_USER_ID},
+                    update(UserRecord)
+                    .where(UserRecord.user_id == GLOBAL_USER_ID)
+                    .values(
+                        identity_confirmed=False,
+                        onboarding_prompted=False,
+                        display_name=None,
+                        updated_at=datetime.now(),
+                    )
                 )
         logger.info("DB 已全量重置")
 

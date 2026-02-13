@@ -36,6 +36,9 @@ scope=user 时：
 - profession: 职业
 - tech_stack: 技术栈（逗号分隔）
 - preferred_style: 期望助手风格
+- spouse: 配偶称呼（如"老婆"、"妻子"、"老公"）
+- wedding_registration_date: 结婚领证日期（格式 YYYY-MM-DD）
+- wedding_anniversary_date: 结婚纪念日（格式 YYYY-MM-DD）
 
 scope=system 时：
 - name: 助手名字（"你叫妲己"→fact_value="妲己"）
@@ -47,7 +50,8 @@ scope=system 时：
 - 0.95: 直接表达（"我叫腿哥"、"你叫妲己"）
 - 0.90: 明确指令（"你回复要简洁"）
 - 0.80: 间接表达（"最近在搞微服务"）
-- <0.75: 不提取
+- 0.55~0.74: 不确定，作为待确认候选
+- <0.55: 不提取
 
 ## 示例
 输入："我叫腿哥，是个设计师，用Figma，你以后叫妲己吧，语气妩媚一点"
@@ -60,6 +64,14 @@ scope=system 时：
   {"scope":"system","fact_type":"tone","fact_key":"tone","fact_value":"妩媚","confidence":0.90}
 ]
 
+输入："明天情人节了，我和我老婆是2018年2月14号领证的，明天是结婚纪念日"
+输出：
+[
+  {"scope":"user","fact_type":"relationship","fact_key":"spouse","fact_value":"老婆","confidence":0.85},
+  {"scope":"user","fact_type":"milestone","fact_key":"wedding_registration_date","fact_value":"2018-02-14","confidence":0.95},
+  {"scope":"user","fact_type":"milestone","fact_key":"wedding_anniversary_date","fact_value":"2018-02-14","confidence":0.90}
+]
+
 无内容返回 []。只输出 JSON。"""
 
 _ALLOWED_MEMORY_SCOPES = {"user", "project", "insight", "system"}
@@ -68,6 +80,8 @@ _ALLOWED_FACT_TYPES = {
     "preference",
     "habit",
     "background",
+    "relationship",
+    "milestone",
     "skill",
     "project",
     "insight",
@@ -75,7 +89,24 @@ _ALLOWED_FACT_TYPES = {
     "constraint",
     "tone",
 }
+_FACT_TYPE_ALIASES = {
+    "demographic": "background",
+    "family": "relationship",
+    "event": "milestone",
+    "life_event": "milestone",
+}
+_FACT_KEY_ALIASES = {
+    "partner": "spouse",
+    "wife": "spouse",
+    "husband": "spouse",
+    "anniversary_date": "wedding_anniversary_date",
+    "wedding_date": "wedding_anniversary_date",
+    "registration_date": "wedding_registration_date",
+    "marriage_registration_date": "wedding_registration_date",
+}
+_DATE_FACT_KEYS = {"wedding_registration_date", "wedding_anniversary_date"}
 _FACT_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$")
+_DATE_LIKE_PATTERN = re.compile(r"(?P<y>\d{4})[年\-/\.](?P<m>\d{1,2})[月\-/\.](?P<d>\d{1,2})")
 _MAX_FACT_VALUE_CHARS = 500
 
 
@@ -228,21 +259,180 @@ class SessionManager:
         metadata: dict = None,
     ):
         """Save message and trigger summarize/embedding pipelines."""
+        message_metadata = dict(metadata or {})
         context = self.cache.get(session_id)
         if context:
-            context.add_message(role, content, metadata)
+            context.add_message(role, content, message_metadata)
 
-        message_id = await self.storage.save_message(session_id, role, content, metadata)
+        message_id = await self.storage.save_message(session_id, role, content, message_metadata)
+        if context and context.messages:
+            last_message = context.messages[-1]
+            if last_message.get("role") == role and last_message.get("content") == content:
+                meta = dict(last_message.get("metadata") or {})
+                meta["message_id"] = message_id
+                last_message["metadata"] = meta
+
+        # Prepare embedding content with context (QA-pair style)
+        content_to_embed = content
+        if context and len(context.messages) >= 2:
+             prev_msg = context.messages[-2]
+             prev_content = str(prev_msg.get("content") or "").strip()
+             prev_role = str(prev_msg.get("role") or "unknown")
+
+             # Only prepend context if it's not too long to avoid dilution
+             if prev_content and len(prev_content) < 800:
+                 content_to_embed = f"{prev_role}: {prev_content}\n{role}: {content}"
+
         await self.enqueue_embedding_job(
             source_type="message",
             source_id=message_id,
-            content=content,
+            content=content_to_embed,
         )
 
         if role == "user":
             # LLM extraction (async, fire-and-forget) — user messages only, no gate
             # 只提取用户消息，避免把助手自身回复误认为用户事实
             self._fire_llm_extraction(content, source_message_id=message_id)
+
+        if role == "assistant":
+            # 实体抽取 (async, fire-and-forget) — 助手回复后触发，分析整段对话
+            # 从最近的对话片段中抽取实体关系写入 Kuzu
+            if context and context.messages:
+                recent_msgs = [
+                    {"role": m["role"], "content": str(m.get("content", ""))}
+                    for m in context.messages[-4:]
+                    if m.get("role") in ("user", "assistant")
+                ]
+                if recent_msgs:
+                    self._fire_entity_extraction(recent_msgs)
+
+        # 同步写 Event 节点到 Kuzu（立即，无 LLM）
+        self._fire_kuzu_event(session_id, role, content)
+
+    # ── Kuzu Event 写入（fire-and-forget）──────────────────────────
+    def _fire_kuzu_event(self, session_id: str, role: str, content: str) -> None:
+        """将消息写入 Kuzu Event 节点（无 LLM，立即入队）。"""
+        async def _write():
+            try:
+                from memory.kuzu_manager import get_writer
+                writer = get_writer()
+                if writer is None:
+                    return
+                await writer.ensure_session(session_id)
+                await writer.write_event(session_id, role, content)
+            except Exception as e:
+                logger.debug(f"Kuzu Event 写入失败（非致命）: {e}")
+
+        task = asyncio.create_task(_write())
+        self._extraction_tasks.add(task)
+        task.add_done_callback(self._extraction_tasks.discard)
+
+    # ── 实体抽取（fire-and-forget）───────────────────────────────────
+    def _fire_entity_extraction(self, messages: list[dict]) -> None:
+        """从最近对话中异步抽取实体写入 Kuzu 图谱。"""
+        client = self._get_llm_client()
+        if client is None:
+            return
+        task = asyncio.create_task(
+            self._extract_entities_via_llm(messages)
+        )
+        self._extraction_tasks.add(task)
+        task.add_done_callback(self._extraction_tasks.discard)
+
+    async def _extract_entities_via_llm(self, messages: list[dict]) -> None:
+        """调用 LLM 抽取实体关系，写入 Kuzu。"""
+        from memory.kuzu_manager import get_writer
+
+        writer = get_writer()
+        if writer is None:
+            return
+
+        client = self._get_llm_client()
+        if client is None:
+            return
+
+        # 构造对话文本
+        conversation_text = "\n".join(
+            f"[{m['role']}]: {str(m.get('content', ''))[:300]}"
+            for m in messages
+        )
+
+        _ENTITY_PROMPT = (
+            "你是实体关系抽取器。从对话中提取值得记入知识图谱的内容。\n\n"
+            "输出 JSON（只输出 JSON，不要解释）：\n"
+            "{\"entities\":[{\"name\":\"实体名\",\"type\":\"person|technology|project|concept\"}],"
+            "\"relations\":[{\"from\":\"A\",\"to\":\"B\",\"type\":\"uses|knows|works_on|related_to\"}],"
+            "\"facts\":[{\"scope\":\"user|project|insight\",\"key\":\"英文键\",\"value\":\"值\","
+            "\"confidence\":0.0-1.0,\"entity\":\"关联实体（可选）\"}]}\n\n"
+            "无内容时返回 {\"entities\":[],\"relations\":[],\"facts\":[]}\n\n"
+            f"对话：\n{conversation_text}"
+        )
+
+        try:
+            response = await client.chat.completions.create(
+                model=self._get_llm_model(),
+                messages=[{"role": "user", "content": _ENTITY_PROMPT}],
+                temperature=0.0,
+                max_tokens=400,
+            )
+            raw = (response.choices[0].message.content or "").strip()
+        except Exception as e:
+            logger.debug(f"实体抽取 LLM 调用失败: {e}")
+            return
+
+        if not raw:
+            return
+
+        # 清理 markdown code fence
+        if "```" in raw:
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw.strip())
+
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.debug(f"实体抽取 JSON 解析失败: {e}")
+            return
+
+        if not isinstance(data, dict):
+            return
+
+        ec, fc = 0, 0
+        for ent in data.get("entities", []):
+            name = str(ent.get("name", "")).strip()
+            etype = str(ent.get("type", "concept")).strip()
+            if name and 1 < len(name) <= 30:
+                try:
+                    await writer.upsert_entity(name, etype)
+                    ec += 1
+                except Exception:
+                    pass
+
+        for rel in data.get("relations", []):
+            frm = str(rel.get("from", "")).strip()
+            to = str(rel.get("to", "")).strip()
+            rtype = str(rel.get("type", "related_to")).strip()
+            if frm and to and frm != to:
+                try:
+                    await writer.upsert_entity_relation(frm, to, rtype)
+                except Exception:
+                    pass
+
+        for fact in data.get("facts", []):
+            scope = str(fact.get("scope", "user"))
+            key = str(fact.get("key", "")).strip()
+            value = str(fact.get("value", "")).strip()
+            confidence = float(fact.get("confidence", 0.7))
+            entity = str(fact.get("entity", "")).strip() or None
+            if key and value and confidence >= 0.6:
+                try:
+                    await writer.upsert_fact(scope, key, value, confidence, entity)
+                    fc += 1
+                except Exception:
+                    pass
+
+        if ec or fc:
+            logger.debug(f"实体抽取完成: {ec} 个实体, {fc} 条事实写入 Kuzu")
 
     # ── LLM-based memory extraction (async, fire-and-forget) ──────
     # ── 基于 LLM 的记忆提取（异步 fire-and-forget） ──────
@@ -318,18 +508,24 @@ class SessionManager:
                         source_message_id=source_message_id,
                     ):
                         applied += 1
-                # confidence < 0.75: discard silently — no pending queue noise
+                elif confidence >= 0.55:
+                    await self.save_memory_pending(
+                        candidate_fact=fact,
+                        confidence=confidence,
+                        source_message_id=source_message_id,
+                    )
+                    pending += 1
 
-            if applied or pending:
-                logger.info(f"LLM 记忆提取: {applied} 条直接写入, {pending} 条待确认")
-                await self.storage.save_memory_event(
-                    event_type="llm_extraction_completed",
-                    payload={
-                        "source_message_id": source_message_id,
-                        "applied": applied,
-                        "pending": pending,
-                    },
-                )
+            logger.info(f"LLM 记忆提取: {applied} 条直接写入, {pending} 条待确认")
+            await self.storage.save_memory_event(
+                event_type="llm_extraction_completed",
+                payload={
+                    "source_message_id": source_message_id,
+                    "applied": applied,
+                    "pending": pending,
+                    "candidate_count": len(candidates),
+                },
+            )
 
         except json.JSONDecodeError:
             logger.debug(f"LLM 记忆提取返回非 JSON: {raw[:100]}")
@@ -572,28 +768,48 @@ class SessionManager:
         """Keyword-only memory search."""
         return await self.storage.search_messages_by_keyword(query=query, limit=limit)
 
-    async def search_memory_hybrid(self, query: str, limit: int = 5) -> list[dict]:
-        """Hybrid search: semantic + keyword + freshness."""
+    async def search_memory_hybrid(
+        self,
+        query: str,
+        limit: int = 5,
+        excluded_sources: set[tuple[str, str]] | None = None,
+        exclude_content: str | None = None,
+    ) -> list[dict]:
+        """Hybrid search: semantic + keyword + freshness + relevance reranking."""
+        logger.info(f"[RAG] 开始检索: query={query[:50]}...")
         semantic_hits: list[dict] = []
         keyword_hits: list[dict] = []
+        excluded = {
+            (str(source_type), str(source_id))
+            for source_type, source_id in (excluded_sources or set())
+            if source_type and source_id
+        }
+        normalized_exclude_content = self._normalize_text_for_match(exclude_content or "")
 
+        # 语义检索（跨会话）
         try:
             query_embedding = self.embedding_engine.embed(query)
             semantic_hits = await self.storage.search_memory_embeddings(query_embedding, limit=20)
+            logger.debug(f"[RAG] 语义检索: {len(semantic_hits)} 条结果")
         except Exception as exc:
+            logger.warning(f"[RAG] 语义检索失败: {exc}")
             await self.storage.save_memory_event(
                 event_type="retrieval_fail",
                 payload={"query": query, "reason": "semantic_error", "error": str(exc)},
             )
 
+        # 关键词检索（跨会话，从 FTS5 或 LIKE 回退）
         try:
             keyword_hits = await self.storage.search_messages_by_keyword(query=query, limit=20)
+            logger.debug(f"[RAG] 关键词检索: {len(keyword_hits)} 条结果")
         except Exception as exc:
+            logger.warning(f"[RAG] 关键词检索失败: {exc}")
             await self.storage.save_memory_event(
                 event_type="retrieval_fail",
                 payload={"query": query, "reason": "keyword_error", "error": str(exc)},
             )
 
+        # 合并结果
         merged: dict[tuple[str, str], dict] = {}
         for hit in semantic_hits:
             key = (hit["source_type"], hit["source_id"])
@@ -620,17 +836,58 @@ class SessionManager:
                 if not merged[key].get("timestamp"):
                     merged[key]["timestamp"] = hit.get("timestamp")
 
+        message_ids = [
+            str(item.get("source_id"))
+            for item in merged.values()
+            if item.get("source_type") == "message" and item.get("source_id")
+        ]
+        message_meta = await self.storage.get_messages_metadata_by_ids(message_ids) if message_ids else {}
+
+        # 计算最终分数
         scored = []
         for item in merged.values():
+            source_key = (str(item.get("source_type", "")), str(item.get("source_id", "")))
+            if source_key in excluded:
+                continue
+
+            content = str(item.get("content") or "")
+            if normalized_exclude_content and content:
+                if self._normalize_text_for_match(content) == normalized_exclude_content:
+                    continue
+
+            role = None
+            if item.get("source_type") == "message" and item.get("source_id"):
+                meta = message_meta.get(str(item.get("source_id")), {})
+                role = meta.get("role")
+                item["message_role"] = role
+                if not item.get("timestamp"):
+                    item["timestamp"] = meta.get("timestamp")
+                if not item.get("session_id"):
+                    item["session_id"] = meta.get("session_id")
+
             semantic_score = float(item.get("semantic_score", 0.0))
             keyword_score = float(item.get("keyword_score", 0.0))
             freshness = self._freshness_score(item.get("timestamp"))
-            final_score = 0.55 * semantic_score + 0.30 * keyword_score + 0.15 * freshness
+            overlap_score = self._token_overlap_ratio(query, content)
+            final_score = (
+                0.45 * semantic_score
+                + 0.30 * keyword_score
+                + 0.10 * freshness
+                + 0.15 * overlap_score
+            )
+            if item.get("source_type") == "fact":
+                final_score += 0.08
+            if role == "assistant":
+                final_score += 0.04
+            if self._looks_like_question(content):
+                final_score -= 0.05
+            final_score = max(0.0, min(1.0, final_score))
             retrieval_type = "semantic" if semantic_score >= keyword_score else "keyword"
             scored.append(
                 {
                     **item,
                     "freshness_score": freshness,
+                    "overlap_score": overlap_score,
                     "final_score": final_score,
                     "retrieval_type": retrieval_type,
                 }
@@ -638,6 +895,14 @@ class SessionManager:
 
         scored.sort(key=lambda x: x["final_score"], reverse=True)
         top_hits = scored[:limit]
+
+        # 详细日志
+        if top_hits:
+            scores_str = ", ".join(f"{h['final_score']:.3f}" for h in top_hits)
+            logger.info(f"[RAG] 检索完成: {len(top_hits)} 条结果, 分数: [{scores_str}]")
+        else:
+            logger.info(f"[RAG] 检索完成: 无结果 (语义:{len(semantic_hits)}, 关键词:{len(keyword_hits)})")
+
         await self.storage.save_memory_event(
             event_type="retrieval_success" if top_hits else "retrieval_fail",
             payload={
@@ -659,6 +924,75 @@ class SessionManager:
         delta_days = max((datetime.now() - dt).total_seconds() / 86400.0, 0.0)
         return max(0.0, 1.0 / (1.0 + delta_days / 14.0))
 
+    @staticmethod
+    def _normalize_text_for_match(text: str) -> str:
+        normalized = re.sub(r"\s+", "", (text or "").strip().lower())
+        normalized = re.sub(
+            r"[，。！？、,.!?;；:：'\"“”‘’（）()【】\[\]{}<>《》\-—_~`|\\/]+",
+            "",
+            normalized,
+        )
+        return normalized
+
+    @staticmethod
+    def _looks_like_question(text: str) -> bool:
+        raw = text or ""
+        lowered = raw.lower()
+        return bool(
+            re.search(
+                r"[?？]|(what|why|how|when|where)|吗|么|呢|什么|为什么|如何|怎么|多少|推荐|建议",
+                lowered,
+            )
+        )
+
+    @staticmethod
+    def _is_history_recall_query(text: str) -> bool:
+        query = text or ""
+        return bool(re.search(r"(还记得|之前|上次|历史|以前|曾经|当时|那次)", query))
+
+    @staticmethod
+    def _extract_terms(text: str) -> set[str]:
+        if not text:
+            return set()
+        lowered = text.lower()
+        terms = set(re.findall(r"[a-z0-9_+.-]{2,32}", lowered))
+        chinese_chunks = re.findall(r"[\u4e00-\u9fff]{2,}", text)
+        for chunk in chinese_chunks:
+            candidate = chunk.strip()
+            if not candidate:
+                continue
+            if len(candidate) <= 4:
+                terms.add(candidate)
+                continue
+            for idx in range(len(candidate) - 1):
+                terms.add(candidate[idx : idx + 2])
+                if len(terms) >= 120:
+                    return terms
+        return terms
+
+    @classmethod
+    def _token_overlap_ratio(cls, query: str, candidate: str) -> float:
+        query_terms = cls._extract_terms(query)
+        if not query_terms:
+            return 0.0
+        candidate_terms = cls._extract_terms(candidate)
+        if not candidate_terms:
+            return 0.0
+        return len(query_terms & candidate_terms) / len(query_terms)
+
+    @staticmethod
+    def _normalize_date_value(text: str) -> str | None:
+        matched = _DATE_LIKE_PATTERN.search(text or "")
+        if not matched:
+            return None
+        try:
+            year = int(matched.group("y"))
+            month = int(matched.group("m"))
+            day = int(matched.group("d"))
+            return datetime(year, month, day).strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+
     async def prepare_messages_for_agent(self, messages: list[dict]) -> list[dict]:
         """Prepend onboarding hint (first time only) or memory card before model inference."""
         user_state = await self.storage.get_global_user_state()
@@ -670,52 +1004,206 @@ class SessionManager:
             await self.storage.mark_onboarding_prompted()
             onboarding_hint = (
                 "系统提示（仅此一次）：这是你与用户的初次见面。\n\n"
-                "【第一步】请用一两句话介绍自己（名字和定位），语气轻松自然。\n\n"
-                "【第二步】引导用户做自我介绍，并询问用户对你的期望人设。\n"
-                "参考提示（融入对话，不要列清单）：\n"
-                "  · 用户怎么称呼\n"
-                "  · 用户希望你叫什么名字、什么性格/语气\n\n"
-                "明确告知：你说的一切都会被自动记住，后续对话中随时可以补充或纠正。\n"
-                "这条提示只触发一次，之后永不重复。"
+                "你的首要任务是引导用户完成【初始化设定】，请按以下步骤进行：\n"
+                "1. 热情地自我介绍（你是拾忆助手）。\n"
+                "2. 询问用户的基本信息（如昵称、职业、主要用途），以便更好地服务（这些将写入 User.md）。\n"
+                "3. 询问用户希望你保持什么样的人设、语气或风格（这些将写入 ShiYi.md）。\n\n"
+                "请将这些问题自然地融入对话中，目标是快速建立默契并收集关键信息。这条提示只触发一次。"
             )
             return [{"role": "system", "content": onboarding_hint}, *system_messages, *messages]
 
         recall_prompt = await self._build_recall_prompt(messages)
         if recall_prompt:
             system_messages.append({"role": "system", "content": recall_prompt})
+            logger.info("[RAG] 已注入历史上下文到系统消息")
 
-        return [*system_messages, *messages]
+        # Kuzu 结构化事实注入（被动，始终注入，不依赖 RAG 分数）
+        kuzu_facts_hint = await self._build_kuzu_facts_hint(messages)
+        if kuzu_facts_hint:
+            system_messages.append({"role": "system", "content": kuzu_facts_hint})
+            logger.debug("[Kuzu] 已注入结构化事实卡片")
+
+        final_messages = [*system_messages, *messages]
+        logger.debug(f"[RAG] 最终消息数: {len(final_messages)} (system:{len(system_messages)}, user:{len(messages)})")
+        return final_messages
 
     async def _build_recall_prompt(self, messages: list[dict]) -> str | None:
-        """Build a recall snippet when user asks historical questions."""
+        """Build a context snippet from memory using semantic search.
+
+        Now performs RAG on every user message (not just keyword-triggered).
+        Returns relevant historical context to augment the current conversation.
+        """
         last_user_message = ""
+        last_user_message_id = ""
         for item in reversed(messages):
             if item.get("role") == "user":
                 last_user_message = item.get("content", "")
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                last_user_message_id = str(metadata.get("message_id", "")).strip()
                 break
         if not last_user_message:
             return None
 
-        if not re.search(r"(还记得|之前|上次|历史|以前|曾经)", last_user_message):
+        # 跳过过短的消息（如"好的"、"谢谢"）
+        if len(last_user_message.strip()) < 5:
             return None
 
-        tokens = re.findall(r"[A-Za-z][A-Za-z0-9+._-]{1,30}", last_user_message)
-        if tokens:
-            query = " ".join(tokens[:4])
-        else:
-            query = last_user_message
+        # 直接使用用户消息作为查询
+        query = last_user_message
 
-        hits = await self.search_memory_hybrid(query, limit=5)
+        excluded_sources = {("message", last_user_message_id)} if last_user_message_id else None
+        hits = await self.search_memory_hybrid(
+            query,
+            limit=8,
+            excluded_sources=excluded_sources,
+            exclude_content=last_user_message,
+        )
+        logger.debug(f"RAG 检索: query={query[:50]}..., hits={len(hits)}")
+
         if not hits:
-            await self.storage.save_memory_event(
-                event_type="retrieval_fail",
-                payload={"query": query, "reason": "no_hits"},
-            )
             return None
 
-        lines = ["历史记忆检索（混合）:"]
-        for hit in hits[:3]:
-            lines.append(f"- [{hit['retrieval_type']}] {hit['content'][:120]}")
+        history_query = self._is_history_recall_query(query)
+        min_final_score = 0.18 if history_query else 0.22
+        min_overlap_score = 0.05 if history_query else 0.08
+        relevant_hits = []
+        audit_rows = []
+        seen_contents: set[str] = set()
+        for rank, hit in enumerate(hits, start=1):
+            score = float(hit.get("final_score", 0.0))
+            content = str(hit.get("content") or "").strip()
+            overlap_score = float(
+                hit.get("overlap_score", self._token_overlap_ratio(query, content))
+            )
+            keyword_score = float(hit.get("keyword_score", 0.0))
+            filter_reason = ""
+
+            if score < min_final_score:
+                filter_reason = f"low_score<{min_final_score:.2f}"
+            elif not content:
+                filter_reason = "empty_content"
+            else:
+                normalized_content = self._normalize_text_for_match(content)
+                if not normalized_content:
+                    filter_reason = "empty_normalized_content"
+                elif normalized_content in seen_contents:
+                    filter_reason = "duplicate_content"
+                elif hit.get("source_type") != "fact" and (
+                    overlap_score < min_overlap_score and keyword_score < 0.45
+                ):
+                    filter_reason = (
+                        f"low_overlap<{min_overlap_score:.2f}"
+                        f"_and_low_keyword<{0.45:.2f}"
+                    )
+                elif (
+                    not history_query
+                    and hit.get("message_role") == "user"
+                    and keyword_score < 0.45
+                    and overlap_score < 0.25
+                    and score < 0.22
+                ):
+                    filter_reason = "user_message_low_quality"
+                else:
+                    seen_contents.add(normalized_content)
+                    relevant_hits.append(hit)
+                    filter_reason = "kept"
+
+            content_preview = content[:80] if len(content) > 80 else content
+            audit_rows.append(
+                {
+                    "rank": rank,
+                    "score": score,
+                    "retrieval_type": hit.get("retrieval_type"),
+                    "overlap_score": overlap_score,
+                    "keyword_score": keyword_score,
+                    "filtered": filter_reason,
+                    "content_preview": content_preview,
+                }
+            )
+            if len(relevant_hits) >= 3:
+                break
+
+        logger.debug(f"RAG 过滤后: relevant={len(relevant_hits)}, scores={[h.get('final_score', 0) for h in hits[:3]]}")
+        if not relevant_hits:
+            for row in audit_rows[:3]:
+                logger.info(
+                    f"[RAG] 候选#{row['rank']}: score={row['score']:.3f}, "
+                    f"type={row['retrieval_type']}, "
+                    f"overlap={row['overlap_score']:.3f}, "
+                    f"keyword={row['keyword_score']:.3f}, "
+                    f"filtered={row['filtered']}, "
+                    f"content={row['content_preview']}..."
+                )
+
+        if not relevant_hits:
+            return None
+
+        lines = ["[相关历史记忆]"]
+        for i, hit in enumerate(relevant_hits):
+            content_preview = hit['content'][:150] if len(hit['content']) > 150 else hit['content']
+            lines.append(f"- {content_preview}")
+            # 打印召回内容
+            logger.info(
+                f"[RAG] 召回#{i+1}: score={hit.get('final_score', 0):.3f}, "
+                f"type={hit.get('retrieval_type')}, "
+                f"overlap={hit.get('overlap_score', 0):.3f}, "
+                f"content={content_preview[:80]}..."
+            )
+        logger.info(f"[RAG] 返回上下文: {len(lines)-1} 条")
+        return "\n".join(lines)
+
+    async def _build_kuzu_facts_hint(self, messages: list[dict]) -> str | None:
+        """从 Kuzu 图谱注入结构化事实卡片（被动召回，不依赖向量分数）。
+
+        两步策略：
+        1. 按最新用户消息做关键词匹配，找相关 Fact
+        2. 补充高置信度全量 Fact（兜底）
+        """
+        try:
+            from memory.kuzu_manager import get_retriever, is_initialized
+            if not is_initialized():
+                return None
+            retriever = get_retriever()
+            if retriever is None:
+                return None
+        except Exception:
+            return None
+
+        # 取最近一条用户消息做关键词检索
+        last_user_msg = ""
+        for item in reversed(messages):
+            if item.get("role") == "user":
+                last_user_msg = str(item.get("content", ""))
+                break
+
+        try:
+            if last_user_msg:
+                kw_facts = await retriever.keyword_prefetch(last_user_msg, top_k=5)
+            else:
+                kw_facts = []
+            # 高置信度全量 Fact 兜底（最多 8 条）
+            top_facts = await retriever.get_top_facts(top_k=8, min_confidence=0.6)
+        except Exception as e:
+            logger.debug(f"Kuzu 事实注入失败: {e}")
+            return None
+
+        # 合并去重（关键词命中优先，再补全量）
+        seen_keys: set[str] = set()
+        merged: list[dict] = []
+        for f in kw_facts + top_facts:
+            k = f"{f['scope']}:{f['key']}"
+            if k not in seen_keys:
+                seen_keys.add(k)
+                merged.append(f)
+            if len(merged) >= 10:
+                break
+
+        if not merged:
+            return None
+
+        lines = ["[已知事实（来自记忆图谱）]"]
+        for f in merged:
+            lines.append(f"- {f['scope']}.{f['key']} = {f['value']}")
         return "\n".join(lines)
 
     async def _build_pending_confirmation_prompt(self) -> str | None:
@@ -744,11 +1232,13 @@ class SessionManager:
             return None, "invalid_scope"
 
         fact_type = str(fact.get("fact_type", "preference")).strip().lower()
+        fact_type = _FACT_TYPE_ALIASES.get(fact_type, fact_type)
         if fact_type not in _ALLOWED_FACT_TYPES:
             return None, "invalid_fact_type"
 
         raw_key = fact.get("fact_key")
         fact_key = str(raw_key).strip().lower() if raw_key is not None else ""
+        fact_key = _FACT_KEY_ALIASES.get(fact_key, fact_key)
         if not fact_key:
             return None, "empty_fact_key"
         if not _FACT_KEY_PATTERN.match(fact_key):
@@ -770,6 +1260,10 @@ class SessionManager:
             return None, "empty_fact_value"
         if len(fact_value) > _MAX_FACT_VALUE_CHARS:
             return None, "fact_value_too_long"
+        if fact_key in _DATE_FACT_KEYS:
+            normalized_date = self._normalize_date_value(fact_value)
+            if normalized_date:
+                fact_value = normalized_date
 
         return {
             "scope": scope,

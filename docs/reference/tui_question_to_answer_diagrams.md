@@ -39,6 +39,9 @@ sequenceDiagram
     S->>S: 组装 memory_card / onboarding / recall 提示
 
     A->>C: process_message_stream(messages)
+    C->>C: Router 路由意图 (chat/memory/realtime/workspace)
+    C->>C: PolicyScheduler 生成工具白名单与预算
+    C->>C: Planner 生成执行计划上下文
     C->>R: get_tool_definitions()
     C->>L: chat_with_tools_stream(full_messages, tools)
 
@@ -54,6 +57,7 @@ sequenceDiagram
             R-->>C: tool instance
             C->>T: execute(args)
             T-->>C: result
+            C->>C: EvidenceCollector 收集 tool 证据
             C-->>A: {"type":"tool_result","result":...}
             A->>V: update_tool_result()
             C->>L: 将 tool result 回填消息，再次推理
@@ -92,6 +96,9 @@ flowchart TD
     H --> I[ChatView 展示用户消息 + thinking]
     I --> J[获取会话上下文 + prepare_messages_for_agent]
     J --> K[调用 AgentCore.process_message_stream]
+    K --> K1[Router: 识别意图]
+    K1 --> K2[Policy: 工具白名单 + 预算]
+    K2 --> K3[Planner: 生成执行计划上下文]
 
     K --> L{事件类型}
     L -- text --> M[累积 full_response_text 并更新助手气泡]
@@ -116,5 +123,6 @@ flowchart TD
 
 - `channels/tui/app.py`：`on_input_submitted`、`_process_message`
 - `core/session_manager.py`：`save_message`、`prepare_messages_for_agent`
-- `core/agent_core.py`：`process_message_stream`
+- `core/agent_core.py`：`process_message_stream`（含 Router/Policy/Planner/Evidence）
+- `core/agent_orchestration.py`：`OrchestrationRouter`、`PolicyScheduler`、`LightweightPlanner`、`EvidenceCollector`
 - `engines/llm/openai_compatible_engine.py`：`chat_with_tools_stream`
