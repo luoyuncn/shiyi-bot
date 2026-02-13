@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator
 
 from loguru import logger
 
+from core.agent_orchestration import EvidenceCollector, OrchestrationRouter, PolicyScheduler
 from core.complexity_detector import ComplexityDetector
 from core.context_builder import build_history_window, get_context_budget
 from engines.llm.openai_compatible_engine import OpenAICompatibleEngine
@@ -41,6 +42,13 @@ class AgentCore:
 
         self.complexity_detector = ComplexityDetector(config)
         self._context_budget = get_context_budget(config)
+        self.use_llm_intent_classifier = self._read_use_llm_intent_classifier(config)
+        self.router = OrchestrationRouter(
+            llm_engine=self.llm_engine,
+            use_llm_classifier=self.use_llm_intent_classifier,
+        )
+        self.policy_scheduler = PolicyScheduler()
+        self.evidence_collector = EvidenceCollector(max_items=5)
 
     @staticmethod
     def _normalize_llm_config(llm_config: Any) -> Any:
@@ -54,6 +62,33 @@ class AgentCore:
             defaults.update(llm_config)
             return SimpleNamespace(**defaults)
         return llm_config
+
+    @staticmethod
+    def _read_use_llm_intent_classifier(config: Any) -> bool:
+        agent_cfg = getattr(config, "agent", None)
+        if isinstance(agent_cfg, dict):
+            orchestration = agent_cfg.get("orchestration", {})
+            if isinstance(orchestration, dict):
+                return bool(orchestration.get("use_llm_intent_classifier", True))
+            return True
+
+        orchestration = getattr(agent_cfg, "orchestration", None)
+        if isinstance(orchestration, dict):
+            return bool(orchestration.get("use_llm_intent_classifier", True))
+        if orchestration is not None:
+            return bool(getattr(orchestration, "use_llm_intent_classifier", True))
+        return True
+
+    @staticmethod
+    def _filter_tool_definitions(tool_defs: list[dict], allowed_tools: list[str]) -> list[dict]:
+        allowset = {str(name).strip() for name in (allowed_tools or []) if str(name).strip()}
+        if not allowset:
+            return []
+        return [
+            tool
+            for tool in tool_defs
+            if str(tool.get("function", {}).get("name", "")).strip() in allowset
+        ]
 
     async def initialize(self):
         """初始化 Agent Core。"""
@@ -120,12 +155,30 @@ class AgentCore:
     ) -> AsyncIterator[dict]:
         """处理一轮对话，流式输出事件。LLM 自主决策何时调用工具。"""
         try:
-            # ── 1. 工具定义（全量，不过滤）──────────────────────────────
+            self.evidence_collector.reset()
+            # ── 1. 意图路由 + 工具白名单 ────────────────────────────────
+            route = await self.router.route_async(messages)
+            policy = self.policy_scheduler.build(route.intent)
+
             tool_defs = ToolRegistry.get_tool_definitions() if enable_tools else []
-            tools = tool_defs if tool_defs else None
+            tools = None
+            if enable_tools and tool_defs and policy.allow_tools:
+                filtered = self._filter_tool_definitions(tool_defs, policy.allowed_tools)
+                tools = filtered if filtered else None
+
+            max_iterations = min(self.max_tool_iterations, max(policy.max_iterations, 1))
+            active_allowset = {
+                str(item.get("function", {}).get("name", "")).strip()
+                for item in (tools or [])
+                if str(item.get("function", {}).get("name", "")).strip()
+            }
 
             if tools:
                 logger.debug(f"已加载 {len(tools)} 个工具定义")
+            logger.info(
+                f"[ToolPolicy] intent={route.intent.value}, reason={route.reason}, "
+                f"allow_tools={policy.allow_tools}, allowed={sorted(active_allowset)}"
+            )
 
             # ── 2. 滑动窗口裁剪会话历史 ──────────────────────────────────
             history_budget = self._context_budget["history_budget"]
@@ -168,12 +221,13 @@ class AgentCore:
             total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             tool_call_cache: dict[str, Any] = {}
             iteration = 0
+            full_text_fragments: list[str] = []
 
-            while iteration < self.max_tool_iterations:
+            while iteration < max_iterations:
                 iteration += 1
                 stream = self.llm_engine.chat_with_tools_stream(
                     full_messages,
-                    tools=(tools if (enable_tools and tools) else []) or [],
+                    tools=(tools if (enable_tools and tools) else None),
                 )
 
                 current_content = ""
@@ -187,6 +241,7 @@ class AgentCore:
                     elif chunk["type"] == "text_delta":
                         delta = chunk["content"]
                         current_content += delta
+                        full_text_fragments.append(delta)
                         yield {"type": "text", "content": delta}
                     elif chunk["type"] == "tool_calls":
                         tool_calls = chunk["tool_calls"]
@@ -220,6 +275,23 @@ class AgentCore:
 
                         try:
                             tool_args = json.loads(tool_args_str)
+
+                            if tool_name not in active_allowset:
+                                blocked_msg = f"策略限制：当前请求不允许调用工具 `{tool_name}`。"
+                                logger.warning(
+                                    f"[ToolPolicy] 已拦截工具调用: tool={tool_name}, intent={route.intent.value}"
+                                )
+                                yield {"type": "tool_result", "tool": tool_name, "result": blocked_msg}
+                                full_messages.append(
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": tool_id,
+                                        "name": tool_name,
+                                        "content": blocked_msg,
+                                    }
+                                )
+                                continue
+
                             cache_key = f"{tool_name}:{tool_args_str}"
 
                             if cache_key in tool_call_cache:
@@ -230,6 +302,11 @@ class AgentCore:
                                 result = await self._execute_tool(tool_name, tool_args)
                                 tool_call_cache[cache_key] = result
 
+                            self.evidence_collector.add_tool_evidence(
+                                tool_name=tool_name,
+                                tool_args=tool_args,
+                                tool_result=str(result),
+                            )
                             yield {"type": "tool_result", "tool": tool_name, "result": str(result)}
                             full_messages.append(
                                 {
@@ -259,8 +336,19 @@ class AgentCore:
                 break
 
             else:
-                logger.warning(f"工具调用达到最大次数 ({self.max_tool_iterations})")
-                yield {"type": "text", "content": "\n\n(已达到最大工具调用次数，停止执行)"}
+                logger.warning(f"工具调用达到最大次数 ({max_iterations})")
+                tail = "\n\n(已达到最大工具调用次数，停止执行)"
+                full_text_fragments.append(tail)
+                yield {"type": "text", "content": tail}
+
+            final_text = "".join(full_text_fragments)
+            evidence_summary = self.evidence_collector.render_summary()
+            if (
+                policy.requires_evidence
+                and evidence_summary
+                and "[Evidence]" not in final_text
+            ):
+                yield {"type": "text", "content": f"\n\n{evidence_summary}"}
 
             yield {"type": "done"}
 

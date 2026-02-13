@@ -64,7 +64,7 @@ class Tool(BaseTool):
         if not hits:
             return "未找到相关记忆。"
 
-        lines = [f"[记忆查询结果 | mode={mode} | query={query[:50]}]"]
+        lines = [f"记忆查询结果 (mode={mode}, query={query[:50]})"]
         for i, hit in enumerate(hits, 1):
             lines.append(f"{i}. {hit.to_text(max_chars=200)} (score={hit.score:.2f})")
 

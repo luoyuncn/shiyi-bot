@@ -106,8 +106,8 @@ def test_policy_scheduler_returns_realtime_search_allowlist():
 def test_policy_scheduler_disables_tools_for_memory_intent():
     scheduler = PolicyScheduler()
     policy = scheduler.build(IntentType.MEMORY)
-    assert policy.allow_tools is False
-    assert policy.allowed_tools == []
+    assert policy.allow_tools is True
+    assert policy.allowed_tools == ["query_memory"]
 
 
 def test_planner_builds_steps_and_tool_requirement():

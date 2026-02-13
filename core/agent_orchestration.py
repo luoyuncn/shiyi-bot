@@ -268,9 +268,9 @@ class PolicyScheduler:
 
         if intent == IntentType.MEMORY:
             return ExecutionPolicy(
-                allow_tools=False,
-                allowed_tools=[],
-                max_iterations=1,
+                allow_tools=True,
+                allowed_tools=["query_memory"],
+                max_iterations=2,
                 requires_evidence=False,
             )
 
@@ -284,7 +284,15 @@ class PolicyScheduler:
 
         return ExecutionPolicy(
             allow_tools=True,
-            allowed_tools=["bash", "read_file", "write_file", "edit_file", "search_web"],
+            allowed_tools=[
+                "bash",
+                "read_file",
+                "write_file",
+                "edit_file",
+                "search_web",
+                "super_search",
+                "query_memory",
+            ],
             max_iterations=3,
             requires_evidence=True,
         )

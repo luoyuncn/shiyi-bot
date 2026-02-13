@@ -13,6 +13,7 @@ from loguru import logger
 from memory.cache import ConversationContext, LRUCache
 from memory.documents import MemoryDocumentStore
 from memory.embeddings import EmbeddingConfig, LocalEmbeddingEngine
+from memory.md_gate import MarkdownGatekeeper
 from memory.storage import MemoryStorage, SessionRecord
 
 # ── LLM memory extraction prompt ──────────────────────────
@@ -52,6 +53,11 @@ scope=system 时：
 - 0.80: 间接表达（"最近在搞微服务"）
 - 0.55~0.74: 不确定，作为待确认候选
 - <0.55: 不提取
+
+## 注意事项
+- 短期事件（如"今天吃了牛肉面"）提取为 scope=user，fact_key 建议使用 "today_activity"
+- 系统会自动将短期事件存入结构化记忆检索层，不会污染 User.md
+- 只有长期身份信息（profession、tech_stack 等）才会写入 User.md
 
 ## 示例
 输入："我叫腿哥，是个设计师，用Figma，你以后叫妲己吧，语气妩媚一点"
@@ -122,6 +128,7 @@ class SessionManager:
         self.storage = MemoryStorage(memory_config.sqlite_path)
         memory_root = getattr(memory_config, "memory_root", "data/memory")
         self.documents = MemoryDocumentStore(memory_root)
+        self.md_gatekeeper = MarkdownGatekeeper()
 
         dimension = int(getattr(memory_config, "embedding_dimension", 128))
         self.embedding_engine = LocalEmbeddingEngine(EmbeddingConfig(dimension=dimension))
@@ -626,6 +633,7 @@ class SessionManager:
                     pending.candidate_fact,
                     confidence=pending.confidence,
                     source_message_id=pending.source_message_id,
+                    confirmed_by_user=True,
                 )
 
         if status == "snoozed" and cooldown_until is None:
@@ -1293,6 +1301,7 @@ class SessionManager:
         fact: dict,
         confidence: float,
         source_message_id: str | None = None,
+        confirmed_by_user: bool = False,
     ) -> bool:
         """Persist memory fact to structured DB and Markdown docs."""
         normalized_fact, reason = self._normalize_memory_patch(fact)
@@ -1337,6 +1346,35 @@ class SessionManager:
             content=f"{scope}:{fact_type}:{fact_key}:{fact_value}",
         )
 
+        md_decision = self.md_gatekeeper.decide(
+            scope=scope,
+            fact_key=fact_key,
+            fact_value=fact_value,
+            confidence=confidence,
+            confirmed_by_user=confirmed_by_user,
+        )
+
+        if not md_decision.allow_md_write:
+            await self.storage.save_memory_event(
+                event_type="md_write_rejected",
+                payload={
+                    "fact_id": fact_id,
+                    "scope": scope,
+                    "fact_type": fact_type,
+                    "fact_key": fact_key,
+                    "fact_value": fact_value,
+                    "confidence": confidence,
+                    "reason": md_decision.reason,
+                    "target_doc": md_decision.target_doc,
+                    "confirmed_by_user": confirmed_by_user,
+                    "source_message_id": source_message_id,
+                },
+            )
+            logger.info(
+                f"✗ {md_decision.target_doc} 拒绝写入: {fact_key}, 原因: {md_decision.reason}"
+            )
+            return True
+
         if scope == "user":
             if fact_key == "display_name":
                 user_state = await self.storage.get_global_user_state()
@@ -1357,6 +1395,21 @@ class SessionManager:
             await asyncio.to_thread(self.documents.append_project_update, fact_value)
         elif scope == "insight":
             await asyncio.to_thread(self.documents.add_insight, fact_value)
+
+        await self.storage.save_memory_event(
+            event_type="md_write_applied",
+            payload={
+                "fact_id": fact_id,
+                "scope": scope,
+                "fact_type": fact_type,
+                "fact_key": fact_key,
+                "fact_value": fact_value,
+                "confidence": confidence,
+                "target_doc": md_decision.target_doc,
+                "confirmed_by_user": confirmed_by_user,
+                "source_message_id": source_message_id,
+            },
+        )
 
         return True
 
