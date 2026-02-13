@@ -23,7 +23,8 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: 将 sessions.db 从版本控制中移除并加入 .gitignore\nEOF\n\\)\")",
       "Bash(git pull:*)",
       "Bash(git push:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(if exist \"d:\\\\vibecoding\\\\shiyi\\\\data\\\\sessions.db\" del \"d:\\\\vibecoding\\\\shiyi\\\\data\\\\sessions.db\")"
     ]
   }
 }

@@ -51,6 +51,8 @@ class ChatView(VerticalScroll):
     async def update_assistant_message(self, content: str):
         if self._last_assistant_msg:
             await self._last_assistant_msg.update_content(content)
+            # 流式输出时自动滚动到底部
+            self.call_after_refresh(self.scroll_end, animate=False)
 
     # ── Thinking ────────────────────────────────────────
 

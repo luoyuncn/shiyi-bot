@@ -120,6 +120,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="禁用 TUI，使用原始 CLI 模式",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="启动前重置所有记忆数据（从模板恢复，如无模板则恢复默认值）",
+    )
     return parser.parse_args()
 
 
@@ -156,6 +161,12 @@ async def main(args: argparse.Namespace):
             # TUI 模式：Textual App 接管事件循环
             # 先初始化核心组件
             await orchestrator.initialize_core()
+
+            # --reset: wipe memory before launching TUI
+            if args.reset:
+                result = await orchestrator.session_manager.reset_all_memory()
+                tpl = "（从模板恢复）" if result["used_template"] else "（恢复默认值）"
+                logger.info(f"[--reset] 记忆已重置 {tpl}: {result['restored_files']}")
 
             # 启动非 CLI 通道（如语音通道）作为后台任务
             bg_task = None

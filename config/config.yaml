@@ -92,12 +92,15 @@ audio:
 agent:
   enable_sub_agents: true
   max_context_tokens: 4000
+  max_tool_iterations: 5  # 工具调用最大迭代次数（每轮可调用多个工具，5轮通常足够）
 
 # 工具配置
 tools:
   builtin:
-    - file_operations
-    - execute_shell
+    - bash
+    - read_file
+    - write_file
+    - edit_file
     - search_web
     - super_search
   mcp:

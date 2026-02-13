@@ -132,14 +132,13 @@ class ShiYiApp(App):
         """Key handling — Ctrl+C interrupt, Escape refocus, Up/Down history."""
         inp = self.query_one("#message-input", Input)
 
-        # Ctrl+C: only intercept when AI is processing; otherwise let terminal handle copy
+        # Ctrl+C: only intercept when AI is processing; otherwise allow Input copy
         if event.key == "ctrl+c":
             if self._processing:
                 self._interrupt_requested = True
                 event.stop()
                 event.prevent_default()
-            else:
-                event.prevent_default()  # prevent app quit, but don't stop()
+            # When not processing, don't prevent_default - let Input handle copy
             return
 
         # Escape or any typing key: refocus input if not already focused
@@ -367,14 +366,35 @@ class ShiYiApp(App):
             await chat.clear_messages()
             await chat.add_welcome(model_name=self.config.llm.model)
 
+        elif cmd == "/reset":
+            await chat.add_system_notice("⚠️  正在重置所有记忆数据...")
+            result = await self.session_manager.reset_all_memory()
+            self.current_session = await self.session_manager.create_session({"channel": "tui"})
+            await chat.clear_messages()
+            tpl_note = "（已从模板恢复）" if result["used_template"] else "（已恢复为默认）"
+            await chat.add_welcome(model_name=self.config.llm.model)
+            await chat.add_system_notice(
+                f"✅ 记忆已全量重置 {tpl_note}\n"
+                f"恢复文件: {', '.join(result['restored_files'])}"
+            )
+
+        elif cmd == "/save-template":
+            saved = await self.session_manager.save_memory_templates()
+            await chat.add_system_notice(
+                f"✅ 模板已保存: {', '.join(saved)}\n"
+                "下次 /reset 将从此模板恢复。"
+            )
+
         elif cmd == "/help":
             await chat.add_system_notice(
                 "可用命令:\n"
-                "  /new          创建新会话\n"
-                "  /list         列出所有会话\n"
-                "  /switch <id>  切换到指定会话\n"
-                "  /clear        清屏\n"
-                "  /help         显示帮助\n"
+                "  /new              创建新会话\n"
+                "  /list             列出所有会话\n"
+                "  /switch <id>      切换到指定会话\n"
+                "  /clear            清屏\n"
+                "  /save-template    将当前4个记忆MD保存为模板\n"
+                "  /reset            重置所有记忆（从模板或默认值恢复）\n"
+                "  /help             显示帮助\n"
                 "\n"
                 "快捷键:\n"
                 "  Ctrl+C        中断回复\n"

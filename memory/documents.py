@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime
 import re
 from pathlib import Path
@@ -19,6 +20,8 @@ class MemoryDocumentStore:
         "location": "location",
         "habit": "work_style",
         "work_style": "work_style",
+        "profession": "profession",
+        "preferred_style": "preferred_style",
     }
     _SHIYI_HARD_KEY_MAP = {
         "name": "name",
@@ -28,6 +31,8 @@ class MemoryDocumentStore:
         "tone": "tone",
         "boundary": "boundaries",
         "boundaries": "boundaries",
+        "constraint": "constraints",
+        "constraints": "constraints",
     }
 
     def __init__(self, memory_root: str = "data/memory"):
@@ -115,8 +120,19 @@ class MemoryDocumentStore:
         user_text = self._trim_text(self.user_path.read_text(encoding="utf-8"), max_chars // 3)
         project_text = self._trim_text(self.project_path.read_text(encoding="utf-8"), max_chars // 6)
         insights_text = self._trim_text(self.insights_path.read_text(encoding="utf-8"), max_chars // 6)
+        # Expose actual paths so the LLM uses correct locations if it ever needs to call file tools.
+        # 暴露实际路径，避免 LLM 用工具时乱猜路径。
+        path_hint = (
+            f"[记忆文件路径（相对工作目录）]\n"
+            f"  ShiYi   : {self.shiyi_path}\n"
+            f"  User    : {self.user_path}\n"
+            f"  Project : {self.project_path}\n"
+            f"  Insights: {self.insights_path}\n"
+            "以上内容已完整注入，无需用工具重复读取。\n"
+        )
         return (
             "以下是长期记忆卡片，请作为高优先级上下文参考。\n\n"
+            f"{path_hint}\n"
             "[ShiYi]\n"
             f"{shiyi_text}\n\n"
             "[User]\n"
@@ -126,6 +142,111 @@ class MemoryDocumentStore:
             "[Insights]\n"
             f"{insights_text}"
         )
+
+    # ── Template management ──────────────────────────────────
+    # Template dir: data/memory/template/
+    # Template files: ShiYiTemplate.md / UserTemplate.md / ProjectTemplate.md / InsightsTemplate.md
+
+    def get_template_dir(self) -> Path:
+        return self.root / "template"
+
+    # Mapping: template filename → target MD path
+    def _template_mappings(self) -> list[tuple[Path, Path, str]]:
+        """Returns list of (template_filename, target_md_path, fallback_default)."""
+        tpl_dir = self.get_template_dir()
+        return [
+            (tpl_dir / "ShiYiTemplate.md",   self.shiyi_path,    self._default_shiyi()),
+            (tpl_dir / "UserTemplate.md",    self.user_path,     self._default_user()),
+            (tpl_dir / "ProjectTemplate.md", self.project_path,  self._default_project()),
+            (tpl_dir / "InsightsTemplate.md",self.insights_path, self._default_insights()),
+        ]
+
+    def save_as_template(self) -> list[str]:
+        """Copy current 4 MD files back to template/ directory. Returns saved template file names."""
+        self.ensure_initialized()
+        tpl_dir = self.get_template_dir()
+        tpl_dir.mkdir(parents=True, exist_ok=True)
+        saved = []
+        for tpl_path, src_path, _ in self._template_mappings():
+            if src_path.exists():
+                shutil.copy2(src_path, tpl_path)
+                saved.append(tpl_path.name)
+        return saved
+
+    def restore_from_template(self) -> list[str]:
+        """Copy template files → actual MD files. Falls back to built-in defaults if template missing.
+        Also resets IdentityState.md to default. Returns list of restored MD file names."""
+        self.ensure_initialized()
+        restored = []
+        for tpl_path, dst_path, default in self._template_mappings():
+            if tpl_path.exists():
+                shutil.copy2(tpl_path, dst_path)
+            else:
+                dst_path.write_text(default, encoding="utf-8")
+            restored.append(dst_path.name)
+        # Always reset identity state
+        self._atomic_write(self.identity_state_path, self._default_identity_state())
+        return restored
+
+    def has_template(self) -> bool:
+        """Return True if at least one template file exists."""
+        return any(tpl.exists() for tpl, _, _ in self._template_mappings())
+
+    # ── Rebuild from DB ──────────────────────────────────────
+
+    def rebuild_user_md_from_facts(self, facts: list[dict]):
+        """Rebuild User.md from active DB memory_facts on startup to prevent amnesia after restart."""
+        self.ensure_initialized()
+        meta, _ = self._read_document(self.user_path)
+        body = "# User\n\n## 用户画像\n\n"
+        for fact in facts:
+            fact_key = fact.get("fact_key", "")
+            fact_value = fact.get("fact_value", "")
+            if not fact_key or not fact_value:
+                continue
+            applied = self._apply_user_hard_field(meta, fact_key, fact_value)
+            if not applied:
+                body += f"- {fact_key}: {fact_value}\n"
+        meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        self._write_document(self.user_path, meta, body)
+
+    def rebuild_shiyi_md_from_facts(self, facts: list[dict]):
+        """Rebuild ShiYi.md from active DB memory_facts (scope=system) on startup."""
+        self.ensure_initialized()
+        meta, body = self._read_document(self.shiyi_path)
+        for fact in facts:
+            fact_key = fact.get("fact_key", "")
+            fact_value = fact.get("fact_value", "")
+            if not fact_key or not fact_value:
+                continue
+            applied = self._apply_shiyi_hard_field(meta, fact_key, fact_value)
+            if not applied:
+                body = self._upsert_key_value_bullet(body, fact_key, fact_value)
+        meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        self._write_document(self.shiyi_path, meta, body)
+
+    def rebuild_insights_md_from_facts(self, insights: list[str]):
+        """Rebuild Insights.md from active DB memory_facts (scope=insight) on startup."""
+        self.ensure_initialized()
+        if not insights:
+            return
+        meta, _ = self._read_document(self.insights_path)
+        hot_items = insights[:10]  # keep top 10
+        lines = "\n".join(f"- {item}" for item in hot_items)
+        content = "# Insights\n\n## 热点经验\n\n" + lines + "\n"
+        meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        self._write_document(self.insights_path, meta, content)
+
+    def rebuild_project_md_from_facts(self, updates: list[str]):
+        """Rebuild Project.md from active DB memory_facts (scope=project) on startup."""
+        self.ensure_initialized()
+        if not updates:
+            return
+        meta, _ = self._read_document(self.project_path)
+        bullet_lines = [f"- {u}" for u in updates]
+        content = "# Project\n\n## 当前阶段\n\n" + "\n".join(bullet_lines) + "\n"
+        meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        self._write_document(self.project_path, meta, content)
 
     def upsert_user_fact(self, fact_key: str, fact_value: str):
         """Apply one structured patch to User.md with hard/soft field separation."""
@@ -228,9 +349,9 @@ class MemoryDocumentStore:
         if not mapped:
             return False
 
-        if mapped == "boundaries":
+        if mapped in ("boundaries", "constraints"):
             items = [item.strip() for item in re.split(r"[，,;/|]+", value) if item.strip()]
-            meta[mapped] = items
+            meta["constraints"] = items
             return True
 
         meta[mapped] = value
@@ -327,12 +448,12 @@ class MemoryDocumentStore:
             "name: ShiYi\n"
             "version: '2.0'\n"
             "persona: ''\n"
-            "boundaries: []\n"
             "tone: ''\n"
+            "constraints: []\n"
             "updated_at: ''\n"
             "---\n"
             "# ShiYi\n\n"
-            "## 核心指令\n\n"
+            "## 人设配置\n\n"
             "- 待初始化\n"
         )
 
@@ -350,10 +471,10 @@ class MemoryDocumentStore:
         return (
             "---\n"
             "display_name: ''\n"
-            "role: ''\n"
+            "profession: ''\n"
             "tech_stack: []\n"
             "location: ''\n"
-            "work_style: ''\n"
+            "preferred_style: ''\n"
             "updated_at: ''\n"
             "---\n"
             "# User\n\n"

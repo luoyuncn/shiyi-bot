@@ -91,6 +91,13 @@ class TUIConfig(BaseModel):
     nerd_font: bool = False  # 启用 Nerd Font 图标（需用户自行安装字体）
 
 
+class AgentConfig(BaseModel):
+    """Agent 配置"""
+    enable_sub_agents: bool = True
+    max_context_tokens: int = 4000
+    max_tool_iterations: int = 5  # 工具调用最大迭代次数，防止无限循环
+
+
 class Settings(BaseModel):
     """完整配置"""
     system: SystemConfig
@@ -102,7 +109,7 @@ class Settings(BaseModel):
     llm: LLMConfig
     tts: TTSConfig
     audio: AudioConfig
-    agent: dict = {}
+    agent: AgentConfig = AgentConfig()
     tools: ToolsConfig
     memory: MemoryConfig
 

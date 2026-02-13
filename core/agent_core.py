@@ -26,7 +26,8 @@ class AgentCore:
             temperature=self.llm_config.temperature,
             max_tokens=self.llm_config.max_tokens
         )
-        self.max_tool_iterations = 5  # 防止无限循环
+        # 从配置读取工具调用最大迭代次数
+        self.max_tool_iterations = getattr(config.agent, 'max_tool_iterations', 5)
 
     @staticmethod
     def _normalize_llm_config(llm_config: Any) -> Any:
@@ -91,6 +92,8 @@ class AgentCore:
             # 工具调用循环
             total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             iteration = 0
+            # 工具调用缓存，防止同一轮对话中重复执行相同工具
+            tool_call_cache: dict[str, Any] = {}
             while iteration < self.max_tool_iterations:
                 iteration += 1
 
@@ -162,13 +165,20 @@ class AgentCore:
 
                         try:
                             tool_args = json.loads(tool_args_str)
-                            yield {
-                                "type": "tool_call",
-                                "tool": tool_name,
-                                "args": tool_args
-                            }
 
-                            result = await self._execute_tool(tool_name, tool_args)
+                            # 检查是否已执行过相同的工具调用（去重）
+                            cache_key = f"{tool_name}:{tool_args_str}"
+                            if cache_key in tool_call_cache:
+                                logger.debug(f"工具调用去重: {tool_name}")
+                                result = tool_call_cache[cache_key]
+                            else:
+                                yield {
+                                    "type": "tool_call",
+                                    "tool": tool_name,
+                                    "args": tool_args
+                                }
+                                result = await self._execute_tool(tool_name, tool_args)
+                                tool_call_cache[cache_key] = result
 
                             yield {
                                 "type": "tool_result",

@@ -837,6 +837,29 @@ class MemoryStorage:
                 "retrieval_fail_count": int(retrieval_fail_count.scalar() or 0),
             }
 
+    async def reset_all_memory(self):
+        """Wipe all memory-related data and reset user state to factory defaults."""
+        async with self.session_factory() as session:
+            async with session.begin():
+                for tbl in (
+                    "memory_facts",
+                    "memory_pending",
+                    "memory_events",
+                    "embedding_jobs",
+                    "memory_embeddings",
+                    "messages",
+                    "sessions",
+                ):
+                    await session.execute(text(f"DELETE FROM {tbl}"))
+                await session.execute(
+                    text(
+                        "UPDATE users SET identity_confirmed=0, onboarding_prompted=0,"
+                        " display_name=NULL, updated_at=:now WHERE user_id=:uid"
+                    ),
+                    {"now": datetime.now(), "uid": GLOBAL_USER_ID},
+                )
+        logger.info("DB 已全量重置")
+
     async def cleanup(self):
         """Cleanup resources."""
         if self.engine:

@@ -18,29 +18,49 @@ from memory.storage import MemoryStorage, SessionRecord
 # ── LLM memory extraction prompt ──────────────────────────
 # ── LLM 记忆提取提示词 ──────────────────────────
 _MEMORY_EXTRACTION_PROMPT = """\
-你是一个记忆提取器。从下面的对话内容中提取值得长期记住的用户信息。
+你是一个记忆提取器。从对话中提取值得长期记住的信息。
 
-只提取 **明确表达** 的事实，不要推测。输出 JSON 数组，每个元素格式：
-{"scope":"user|project|insight", "fact_type":"identity|preference|habit|background|skill", "fact_key":"简短键名", "fact_value":"值", "confidence":0.0~1.0}
+## 输出格式
+JSON 数组，每个元素：
+{"scope":"user|project|insight|system", "fact_type":"...", "fact_key":"简短英文键", "fact_value":"值", "confidence":0.0~1.0}
 
-提取规则：
-- identity: 姓名、称呼、昵称、年龄、职业、身份
-- preference: 技术偏好、工具选择、风格喜好
-- habit: 使用习惯、工作流程
-- background: 教育、公司、项目经历
-- skill: 擅长的技术/语言/框架
-- project: 当前正在做的项目进展
-- insight: 总结的经验教训
+## scope 说明
+- user: 用户个人信息（姓名、职业、偏好等）
+- project: 项目进展、里程碑
+- insight: 经验教训
+- system: 用户对助手的要求（人设、语气、边界）
 
-confidence 评分标准：
-- 0.95: 直接自我介绍 ("我叫XX", "叫我XX")
-- 0.90: 明确偏好 ("我喜欢Python", "我用VSCode")
-- 0.80: 间接表达 ("最近在搞微服务")
-- 0.70: 轻度提及 ("试了一下Rust")
-- < 0.60: 不确定的，不要提取
+## 高优先级 fact_key（必须按此命名）
+scope=user 时：
+- display_name: 用户称呼（"叫我腿哥"→fact_value="腿哥"）
+- profession: 职业
+- tech_stack: 技术栈（逗号分隔）
+- preferred_style: 期望助手风格
 
-如果没有值得提取的内容，返回空数组 []。
-只输出 JSON，不要输出任何其他文字。"""
+scope=system 时：
+- name: 助手名字（"你叫妲己"→fact_value="妲己"）
+- persona: 助手人设定位
+- tone: 语气风格
+- constraint: 行为限制
+
+## confidence 评分
+- 0.95: 直接表达（"我叫腿哥"、"你叫妲己"）
+- 0.90: 明确指令（"你回复要简洁"）
+- 0.80: 间接表达（"最近在搞微服务"）
+- <0.75: 不提取
+
+## 示例
+输入："我叫腿哥，是个设计师，用Figma，你以后叫妲己吧，语气妩媚一点"
+输出：
+[
+  {"scope":"user","fact_type":"identity","fact_key":"display_name","fact_value":"腿哥","confidence":0.95},
+  {"scope":"user","fact_type":"identity","fact_key":"profession","fact_value":"设计师","confidence":0.95},
+  {"scope":"user","fact_type":"skill","fact_key":"tech_stack","fact_value":"Figma","confidence":0.90},
+  {"scope":"system","fact_type":"persona","fact_key":"name","fact_value":"妲己","confidence":0.95},
+  {"scope":"system","fact_type":"tone","fact_key":"tone","fact_value":"妩媚","confidence":0.90}
+]
+
+无内容返回 []。只输出 JSON。"""
 
 _ALLOWED_MEMORY_SCOPES = {"user", "project", "insight", "system"}
 _ALLOWED_FACT_TYPES = {
@@ -53,6 +73,7 @@ _ALLOWED_FACT_TYPES = {
     "insight",
     "persona",
     "constraint",
+    "tone",
 }
 _FACT_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$")
 _MAX_FACT_VALUE_CHARS = 500
@@ -93,14 +114,44 @@ class SessionManager:
 
         # DB is the single source of truth for identity confirmation.
         # DB 是身份确认状态的唯一事实来源。
-        # IdentityState.md is a mirror record only; it must never drive DB state.
-        # IdentityState.md 仅做镜像记录，不能反向驱动 DB 状态。
         user_state = await self.storage.get_global_user_state()
         await asyncio.to_thread(
             self.documents.write_identity_state,
             user_state["identity_confirmed"],
             user_state.get("display_name"),
         )
+
+        # Rebuild all 4 MD files from DB memory_facts on every startup to prevent post-restart amnesia.
+        # 每次启动都从 DB memory_facts 重建全部 4 个 MD，防止重启失忆。
+        user_facts = await self.storage.list_memory_facts(scope="user", status="active", limit=200)
+        if user_facts:
+            fact_dicts = [
+                {"fact_key": f.fact_key, "fact_value": f.fact_value}
+                for f in user_facts
+            ]
+            await asyncio.to_thread(self.documents.rebuild_user_md_from_facts, fact_dicts)
+            logger.debug(f"从 DB 重建 User.md，共 {len(fact_dicts)} 条事实")
+
+        system_facts = await self.storage.list_memory_facts(scope="system", status="active", limit=100)
+        if system_facts:
+            fact_dicts = [
+                {"fact_key": f.fact_key, "fact_value": f.fact_value}
+                for f in system_facts
+            ]
+            await asyncio.to_thread(self.documents.rebuild_shiyi_md_from_facts, fact_dicts)
+            logger.debug(f"从 DB 重建 ShiYi.md，共 {len(fact_dicts)} 条事实")
+
+        insight_facts = await self.storage.list_memory_facts(scope="insight", status="active", limit=10)
+        if insight_facts:
+            insight_values = [str(f.fact_value) for f in insight_facts]
+            await asyncio.to_thread(self.documents.rebuild_insights_md_from_facts, insight_values)
+            logger.debug(f"从 DB 重建 Insights.md，共 {len(insight_values)} 条经验")
+
+        project_facts = await self.storage.list_memory_facts(scope="project", status="active", limit=60)
+        if project_facts:
+            project_values = [str(f.fact_value) for f in project_facts]
+            await asyncio.to_thread(self.documents.rebuild_project_md_from_facts, project_values)
+            logger.debug(f"从 DB 重建 Project.md，共 {len(project_values)} 条进展")
 
         self._running = True
         self._flush_task = asyncio.create_task(self._auto_flush_loop())
@@ -188,85 +239,17 @@ class SessionManager:
             content=content,
         )
 
-        if role in ("user", "assistant"):
-            if role == "user":
-                await self._try_complete_identity_onboarding_from_message(content)
-
-            # Regex fast-path (sync, instant)
-            # 正则快速路径（同步、即时）
-            await self.summarize_and_store(content, source_message_id=message_id)
-            # LLM deep extraction (async, fire-and-forget)
-            # LLM 深度提取（异步、fire-and-forget）
-            user_state = await self.storage.get_global_user_state()
-            if self._memory_updates_enabled(user_state):
-                self._fire_llm_extraction(content, source_message_id=message_id)
-
-    async def _try_complete_identity_onboarding_from_message(self, content: str) -> bool:
-        """Try to complete onboarding from one structured user confirmation message."""
-        user_state = await self.storage.get_global_user_state()
-        if user_state["identity_confirmed"]:
-            return False
-
-        fields: dict[str, str] = {}
-        for key, value in re.findall(
-            r"(十一人设|用户身份|称呼|确认)\s*[:：]\s*([^\n。；;]+)",
-            content,
-            flags=re.IGNORECASE,
-        ):
-            fields[key.strip().lower()] = value.strip()
-
-        shiyi_identity = fields.get("十一人设")
-        user_identity = fields.get("用户身份")
-        confirm_value = fields.get("确认", "").lower()
-        confirmed = confirm_value in {"是", "确认", "yes", "ok", "true"}
-
-        # Natural-language fallback for onboarding confirmation.
-        # onboarding 确认的自然语言兜底解析。
-        if not shiyi_identity:
-            shiyi_match = re.search(
-                r"(?:十一|你)(?:的)?(?:人设|定位|身份)?(?:是|为)\s*([^\n。；;]{4,120})",
-                content,
-            )
-            if shiyi_match:
-                shiyi_identity = shiyi_match.group(1).strip()
-        if not user_identity:
-            user_match = re.search(
-                r"我(?:是|叫)\s*([^\n。；;]{2,120})",
-                content,
-            )
-            if user_match:
-                user_identity = f"我是{user_match.group(1).strip()}"
-        if not confirmed and re.search(r"(确认|就按这个|没问题|可以|是的|对)", content):
-            confirmed = True
-
-        if not (shiyi_identity and user_identity and confirmed):
-            return False
-
-        display_name = fields.get("称呼")
-        if not display_name:
-            name_match = re.search(r"我(?:叫|是)\s*([^\s，。！？,!.?]{1,20})", user_identity)
-            if name_match:
-                display_name = name_match.group(1)
-
-        await self.complete_identity_onboarding(
-            shiyi_identity=shiyi_identity,
-            user_identity=user_identity,
-            display_name=display_name,
-        )
-        await self.storage.save_memory_event(
-            event_type="identity_onboarding_completed_inline",
-            payload={
-                "display_name": display_name,
-                "source": "user_message",
-            },
-        )
-        return True
+        if role == "user":
+            # LLM extraction (async, fire-and-forget) — user messages only, no gate
+            # 只提取用户消息，避免把助手自身回复误认为用户事实
+            self._fire_llm_extraction(content, source_message_id=message_id)
 
     # ── LLM-based memory extraction (async, fire-and-forget) ──────
     # ── 基于 LLM 的记忆提取（异步 fire-and-forget） ──────
 
     def _fire_llm_extraction(self, content: str, source_message_id: str | None = None):
-        """Launch LLM memory extraction as a background task."""
+        """Launch LLM memory extraction as a background task (no gate — always fires)."""
+        # 无门控：每条消息都触发提取，LLM 自行判断是否有值得记忆的内容
         client = self._get_llm_client()
         if client is None:
             return
@@ -282,9 +265,6 @@ class SessionManager:
         """Call LLM to extract structured memory facts from content."""
         client = self._get_llm_client()
         if client is None:
-            return
-        user_state = await self.storage.get_global_user_state()
-        if not self._memory_updates_enabled(user_state):
             return
 
         # Skip very short content
@@ -331,20 +311,14 @@ class SessionManager:
                     )
                     continue
 
-                if confidence >= 0.85:
+                if confidence >= 0.75:
                     if await self._apply_memory_fact(
                         fact=fact,
                         confidence=confidence,
                         source_message_id=source_message_id,
                     ):
                         applied += 1
-                elif confidence >= 0.60:
-                    await self.save_memory_pending(
-                        candidate_fact=fact,
-                        confidence=confidence,
-                        source_message_id=source_message_id,
-                    )
-                    pending += 1
+                # confidence < 0.75: discard silently — no pending queue noise
 
             if applied or pending:
                 logger.info(f"LLM 记忆提取: {applied} 条直接写入, {pending} 条待确认")
@@ -375,6 +349,25 @@ class SessionManager:
         """Get singleton global user state."""
         return await self.storage.get_global_user_state()
 
+    async def reset_all_memory(self) -> dict:
+        """Full memory reset: clear DB + restore MD files from templates (or defaults).
+
+        Returns a status dict with keys: db_reset (bool), restored_files (list[str]),
+        used_template (bool).
+        """
+        await self.storage.reset_all_memory()
+        self.cache.clear()
+        has_tpl = await asyncio.to_thread(self.documents.has_template)
+        restored = await asyncio.to_thread(self.documents.restore_from_template)
+        logger.info(f"记忆已重置，恢复文件: {restored}，使用模板: {has_tpl}")
+        return {"db_reset": True, "restored_files": restored, "used_template": has_tpl}
+
+    async def save_memory_templates(self) -> list[str]:
+        """Save current 4 MD files as templates for future resets."""
+        saved = await asyncio.to_thread(self.documents.save_as_template)
+        logger.info(f"模板已保存: {saved}")
+        return saved
+
     async def complete_identity_onboarding(
         self,
         shiyi_identity: str,
@@ -401,221 +394,6 @@ class SessionManager:
                 "display_name": display_name,
             },
         )
-
-    async def summarize_and_store(self, content: str, source_message_id: str | None = None):
-        """Incremental summarize pipeline with confidence-based routing."""
-        user_state = await self.storage.get_global_user_state()
-        if not self._memory_updates_enabled(user_state):
-            return
-
-        high_count = 0
-        pending_count = 0
-        for candidate in self._extract_memory_candidates(content):
-            confidence = candidate["confidence"]
-            fact, reason = self._normalize_memory_patch(candidate["fact"])
-            if not fact:
-                await self._record_rejected_patch(
-                    fact=candidate["fact"],
-                    reason=reason or "normalize_failed",
-                    source_message_id=source_message_id,
-                )
-                continue
-            if confidence >= 0.85:
-                if await self._apply_memory_fact(
-                    fact=fact,
-                    confidence=confidence,
-                    source_message_id=source_message_id,
-                ):
-                    high_count += 1
-            elif confidence >= 0.60:
-                await self.save_memory_pending(
-                    candidate_fact=fact,
-                    confidence=confidence,
-                    source_message_id=source_message_id,
-                )
-                pending_count += 1
-                await self.storage.save_memory_event(
-                    event_type="memory_pending_created",
-                    payload={
-                        "fact": fact,
-                        "confidence": confidence,
-                        "source_message_id": source_message_id,
-                    },
-                )
-
-        project_update = self._extract_project_update(content)
-        if project_update:
-            await asyncio.to_thread(self.documents.append_project_update, project_update)
-
-        insight = self._extract_insight(content)
-        if insight:
-            await asyncio.to_thread(self.documents.add_insight, insight)
-
-        await self.storage.save_memory_event(
-            event_type="summarize_and_store_completed",
-            payload={
-                "source_message_id": source_message_id,
-                "high_confidence_count": high_count,
-                "pending_count": pending_count,
-            },
-            operation_id=f"summarize:{source_message_id}" if source_message_id else None,
-        )
-
-    def _extract_memory_candidates(self, content: str) -> list[dict]:
-        """Extract candidate facts with confidence scores.
-
-        Handles both user messages ("我叫XX") and assistant confirmations
-        ("好的，已记住你叫XX", "记住了，你是XX").
-        """
-        candidates: list[dict] = []
-
-        # ── User self-introduction ──
-        # ── 用户自我介绍 ──
-        name_match = re.search(r"我叫\s*([^\s，。！？,!.?]{1,20})", content)
-        if name_match:
-            candidates.append(
-                {
-                    "confidence": 0.95,
-                    "fact": {
-                        "scope": "user",
-                        "fact_type": "identity",
-                        "fact_key": "display_name",
-                        "fact_value": name_match.group(1),
-                    },
-                }
-            )
-
-        # ── User identity variants ("你可以叫我X", "叫我X就行") ──
-        # ── 用户身份表达变体（“你可以叫我X”“叫我X就行”） ──
-        alias_match = re.search(
-            r"(?:你可以)?叫我\s*([^\s，。！？,!.?]{1,20})",
-            content,
-        )
-        if alias_match and not name_match:
-            candidates.append(
-                {
-                    "confidence": 0.90,
-                    "fact": {
-                        "scope": "user",
-                        "fact_type": "identity",
-                        "fact_key": "display_name",
-                        "fact_value": alias_match.group(1),
-                    },
-                }
-            )
-
-        # ── Assistant confirmation of user name ──
-        # ── 助手确认用户称呼 ──
-        confirm_name = re.search(
-            r"(?:记住了|好的|了解|收到)[，,]?\s*(?:你(?:叫|是)|称呼.*?为?)\s*([^\s，。！？,!.?]{1,20})",
-            content,
-        )
-        if confirm_name:
-            candidates.append(
-                {
-                    "confidence": 0.88,
-                    "fact": {
-                        "scope": "user",
-                        "fact_type": "identity",
-                        "fact_key": "display_name",
-                        "fact_value": confirm_name.group(1),
-                    },
-                }
-            )
-
-        # ── User profession/role ("我是程序员", "我做后端的") ──
-        # ── 用户职业/角色（“我是程序员”“我做后端的”） ──
-        role_match = re.search(
-            r"我(?:是|做)\s*([^\s，。！？,!.?]{2,20}?)(?:的|$)",
-            content,
-        )
-        if role_match:
-            val = role_match.group(1).strip()
-            if len(val) >= 2 and val not in ("什么", "不是", "这个", "那个"):
-                candidates.append(
-                    {
-                        "confidence": 0.75,
-                        "fact": {
-                            "scope": "user",
-                            "fact_type": "identity",
-                            "fact_key": "profession",
-                            "fact_value": val,
-                        },
-                    }
-                )
-
-        # ── Tech preference (explicit) ──
-        # ── 技术偏好（显式表达） ──
-        pref_match = re.search(
-            r"我(?:更)?(?:喜欢|偏好|偏爱)\s*([A-Za-z][A-Za-z0-9+._-]{1,30})",
-            content,
-        )
-        if pref_match:
-            candidates.append(
-                {
-                    "confidence": 0.9,
-                    "fact": {
-                        "scope": "user",
-                        "fact_type": "preference",
-                        "fact_key": "preferred_tech",
-                        "fact_value": pref_match.group(1),
-                    },
-                }
-            )
-
-        # ── Tech preference (medium confidence) ──
-        # ── 技术偏好（中等置信度） ──
-        medium_pref_match = re.search(
-            r"我最近在用\s*([A-Za-z][A-Za-z0-9+._-]{1,30})",
-            content,
-        )
-        if medium_pref_match:
-            candidates.append(
-                {
-                    "confidence": 0.72,
-                    "fact": {
-                        "scope": "user",
-                        "fact_type": "preference",
-                        "fact_key": "preferred_tech",
-                        "fact_value": medium_pref_match.group(1),
-                    },
-                }
-            )
-
-        # ── General preference ("我习惯X", "我常用X") ──
-        # ── 通用偏好（“我习惯X”“我常用X”） ──
-        habit_match = re.search(
-            r"我(?:习惯|常用|一直用)\s*([^\s，。！？,!.?]{2,30})",
-            content,
-        )
-        if habit_match:
-            candidates.append(
-                {
-                    "confidence": 0.70,
-                    "fact": {
-                        "scope": "user",
-                        "fact_type": "preference",
-                        "fact_key": "habit",
-                        "fact_value": habit_match.group(1),
-                    },
-                }
-            )
-
-        return candidates
-
-    @staticmethod
-    def _extract_project_update(content: str) -> str | None:
-        match = re.search(r"项目进展[:：]\s*(.+)", content)
-        if not match:
-            return None
-        return match.group(1).strip()
-
-    @staticmethod
-    def _extract_insight(content: str) -> str | None:
-        match = re.search(r"(?:经验|复盘)[:：]\s*(.+)", content)
-        if not match:
-            return None
-        return match.group(1).strip()
 
     async def save_memory_pending(
         self,
@@ -881,45 +659,30 @@ class SessionManager:
         delta_days = max((datetime.now() - dt).total_seconds() / 86400.0, 0.0)
         return max(0.0, 1.0 / (1.0 + delta_days / 14.0))
 
-    @staticmethod
-    def _memory_updates_enabled(user_state: dict) -> bool:
-        """Enable memory write/extraction after first onboarding touchpoint."""
-        return bool(
-            user_state.get("identity_confirmed")
-            or user_state.get("onboarding_prompted")
-        )
-
     async def prepare_messages_for_agent(self, messages: list[dict]) -> list[dict]:
-        """Prepend onboarding guidance or memory card before model inference."""
+        """Prepend onboarding hint (first time only) or memory card before model inference."""
         user_state = await self.storage.get_global_user_state()
         memory_card = await asyncio.to_thread(self.documents.build_system_memory_card)
         system_messages = [{"role": "system", "content": memory_card}]
 
-        if not user_state["identity_confirmed"]:
-            if not user_state.get("onboarding_prompted"):
-                await self.storage.mark_onboarding_prompted()
-                onboarding_prompt = (
-                    "系统状态：用户尚未完成身份初始化。\n"
-                    "请先引导用户确认两件事：\n"
-                    "1) 十一的人设定位与行为边界；\n"
-                    "2) 用户身份（称呼、背景、偏好）。\n"
-                    "请用户尽量按以下格式一次回复：\n"
-                    "十一人设：...\n"
-                    "用户身份：...\n"
-                    "称呼：...\n"
-                    "确认：是\n"
-                    "在用户明确确认前，不要假设长期身份信息。"
-                )
-                return [{"role": "system", "content": onboarding_prompt}, *system_messages, *messages]
-            return [*system_messages, *messages]
+        if not user_state.get("onboarding_prompted"):
+            # 仅首次对话触发，之后永不重复，无论用户是否正面回答
+            await self.storage.mark_onboarding_prompted()
+            onboarding_hint = (
+                "系统提示（仅此一次）：这是你与用户的初次见面。\n\n"
+                "【第一步】请用一两句话介绍自己（名字和定位），语气轻松自然。\n\n"
+                "【第二步】引导用户做自我介绍，并询问用户对你的期望人设。\n"
+                "参考提示（融入对话，不要列清单）：\n"
+                "  · 用户怎么称呼\n"
+                "  · 用户希望你叫什么名字、什么性格/语气\n\n"
+                "明确告知：你说的一切都会被自动记住，后续对话中随时可以补充或纠正。\n"
+                "这条提示只触发一次，之后永不重复。"
+            )
+            return [{"role": "system", "content": onboarding_hint}, *system_messages, *messages]
 
         recall_prompt = await self._build_recall_prompt(messages)
         if recall_prompt:
             system_messages.append({"role": "system", "content": recall_prompt})
-
-        pending_prompt = await self._build_pending_confirmation_prompt()
-        if pending_prompt:
-            system_messages.append({"role": "system", "content": pending_prompt})
 
         return [*system_messages, *messages]
 
